@@ -95,6 +95,8 @@ user-management-system/
 
 ```
 User (custom, email = USERNAME_FIELD)
+  ├── username: auto-generated public User ID (PHIN-XXXXXXXX, never user-chosen)
+  ├── first/middle/last name, gender, phone (unique, canonical +digits form)
   ├── role: applicant | reviewer | admin
   └── 1:N KYCApplication (as applicant)
 
@@ -215,8 +217,8 @@ the `Retry-After` wait time when it receives a 429.
 
 | Method | Endpoint                                     | Auth | Role                          | Description                          |
 | ------ | -------------------------------------------- | ---- | ----------------------------- | ------------------------------------ |
-| POST   | `/api/auth/register/`                        | ❌   | —                             | Register applicant                   |
-| POST   | `/api/auth/token/`                           | ❌   | —                             | Login → access token + refresh cookie |
+| POST   | `/api/auth/register/`                        | ❌   | —                             | Register applicant (names, email, phone, gender) |
+| POST   | `/api/auth/token/`                           | ❌   | —                             | Login (email **or phone**) → access token + refresh cookie |
 | POST   | `/api/auth/google/`                          | ❌   | —                             | Google Sign-In → same JWT session    |
 | POST   | `/api/auth/token/refresh/`                   | ❌   | —                             | Rotate refresh cookie → new access   |
 | POST   | `/api/auth/logout/`                          | ❌   | —                             | Blacklist refresh token, clear cookie |
@@ -247,8 +249,8 @@ can be downloaded without the JWT (served as attachments, see above).
 | Route               | Page                    | Purpose                          |
 | ------------------- | ----------------------- | -------------------------------- |
 | `/`                 | `DashboardPage`         | Role-based overview              |
-| `/login`            | `LoginPage`             | Email/password login             |
-| `/register`         | `RegisterPage`          | New applicant registration       |
+| `/login`            | `LoginPage`             | Email/phone + password login     |
+| `/register`         | `RegisterPage`          | Registration (names, email, phone, gender, Google) |
 | `/applications/new` | `ApplicationFormPage`   | Create/edit application          |
 | `/applications/:id` | `ApplicationDetailPage` | View, upload docs, submit        |
 | `/review`           | `ReviewQueuePage`       | Reviewer queue                   |
