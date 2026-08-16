@@ -34,13 +34,14 @@ class PasswordField(serializers.CharField):
 
 
 class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """JWT serializer that authenticates with email instead of username."""
+    """JWT serializer that authenticates with email instead of username.
+
+    ``TokenObtainSerializer.validate`` already authenticates against
+    ``attrs[self.username_field]``, so pointing ``username_field`` at
+    ``email`` is all that is needed — no ``validate`` override required.
+    """
 
     username_field = "email"
-
-    def validate(self, attrs):
-        attrs["username"] = attrs.get("email", "")
-        return super().validate(attrs)
 
 
 class RegisterSerializer(serializers.ModelSerializer):

@@ -190,7 +190,10 @@ SIMPLE_JWT = {
 # cookie flag must be off there or browsers will never send the cookie back.
 SSL_ENABLED = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "true").lower() == "true"
 JWT_AUTH_COOKIE = "refresh_token"
-JWT_AUTH_COOKIE_PATH = "/"
+# The refresh cookie is only consumed by /api/auth/token/refresh/ and
+# /api/auth/logout/, so scope it to /api/ — it is never sent to the SPA,
+# static assets, or the admin, shrinking its exposure surface.
+JWT_AUTH_COOKIE_PATH = "/api/"
 JWT_AUTH_COOKIE_MAX_AGE = int(timedelta(days=7).total_seconds())
 JWT_AUTH_COOKIE_SECURE = not DEBUG and SSL_ENABLED
 # SameSite=None (required for cross-origin cookie use) is only valid together

@@ -53,8 +53,8 @@ export default function ApplicationFormPage() {
     }
     setBusy(true);
     try {
-      const payload = { ...form, id_expiry: form.id_expiry || null };
-      const app = await api.createApplication(payload as ApplicationPayload);
+      const payload: ApplicationPayload = { ...form, id_expiry: form.id_expiry || null };
+      const app = await api.createApplication(payload);
       navigate(`/applications/${app.id}`);
     } catch (err) {
       setError(api.errorMessage(err, "Failed to create application."));

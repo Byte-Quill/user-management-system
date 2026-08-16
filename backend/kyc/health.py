@@ -3,7 +3,6 @@ import logging
 
 from django.db import connection
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 
 logger = logging.getLogger("kyc.health")
@@ -14,7 +13,6 @@ def healthz(request):
     return JsonResponse({"status": "ok"})
 
 
-@csrf_exempt
 def readyz(request):
     """Readiness: the process can serve traffic (database reachable)."""
     checks = {"database": False}

@@ -58,7 +58,10 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - backend
+      backend:
+        # backend has no healthcheck; wait for it to start so nginx's first
+        # proxied requests don't hit a connection-refused upstream.
+        condition: service_started
 
 volumes:
   pg_data:

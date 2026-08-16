@@ -297,7 +297,7 @@ npm run dev                         # http://localhost:5173
 
 ```bash
 cd backend
-python manage.py test kyc           # 24 tests: auth, flow, uploads, downloads, permissions, admin
+python manage.py test kyc           # 30 tests: auth, flow, uploads, downloads, permissions, admin
 ```
 
 ---

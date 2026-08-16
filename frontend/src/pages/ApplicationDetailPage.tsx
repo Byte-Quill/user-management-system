@@ -65,15 +65,22 @@ export default function ApplicationDetailPage() {
     load();
   }, [load]);
 
+  // Fetch audit page 1 whenever the application (id) changes.
   useEffect(() => {
     setAuditPage(1);
     loadAudit(1);
   }, [loadAudit]);
 
+  // Fetch when the user paginates to a non-first page. Page 1 is fetched by
+  // the effect above (on load and on id change), so skip it here. `loadAudit`
+  // is intentionally not a dependency: this effect must re-run only when the
+  // user changes the page, never when loadAudit's identity changes with `id`
+  // (that would re-fetch a stale page right after the reset above).
   useEffect(() => {
-    if (auditPage === 1) return; // already loaded above
+    if (auditPage === 1) return;
     loadAudit(auditPage);
-  }, [auditPage, loadAudit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auditPage]);
 
   if (error) return <p className="text-red-600">{error}</p>;
   if (!app) return <p className="text-slate-500">Loading…</p>;

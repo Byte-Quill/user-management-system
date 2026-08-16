@@ -97,12 +97,12 @@ class DownloadThrottle(ScopedRateThrottle):
     """Per-IP cap on signed document downloads (unauthenticated endpoint).
 
     Generous enough for a reviewer opening many files, but bounds scraping /
-    DoS of the file-serving path. Keyed by IP since downloads carry no JWT.
+    DoS of the file-serving path. The download view sets
+    ``authentication_classes = ()``, so requests are always anonymous and the
+    counter is keyed by IP.
     """
 
     def get_cache_key(self, request, view):
-        if request.user and request.user.is_authenticated:
-            return f"download-throttle:{request.user.pk}"
         return f"download-throttle:anon:{self.get_ident(request)}"
 
 
