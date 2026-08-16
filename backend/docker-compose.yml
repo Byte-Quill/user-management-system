@@ -29,6 +29,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    mem_limit: 512m
 
   backend:
     # This compose file lives in backend/, so the build context is "." here
@@ -52,6 +53,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      # /readyz checks the DB; urllib raises on the 503 it returns when down.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
 
   web:
     build: ../frontend
@@ -66,9 +78,11 @@ services:
       - "8080:80"
     depends_on:
       backend:
-        # backend has no healthcheck; wait for it to start so nginx's first
-        # proxied requests don't hit a connection-refused upstream.
-        condition: service_started
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
 
 volumes:
   pg_data:
