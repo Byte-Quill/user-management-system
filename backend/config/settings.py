@@ -97,6 +97,11 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database: PostgreSQL via DATABASE_URL (any instance: self-hosted,
 # docker-compose, or managed). Example:
 #   postgres://kyc:kyc@localhost:5432/kyc
+if os.environ.get("DATABASE_URL", "").startswith("sqlite"):
+    raise RuntimeError(
+        "SQLite is not supported. Point DATABASE_URL at PostgreSQL, e.g. "
+        "postgres://kyc:***@localhost:5432/kyc"
+    )
 DATABASES = {
     "default": dj_database_url.config(
         conn_max_age=600,

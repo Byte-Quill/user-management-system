@@ -261,7 +261,7 @@ Documents are stored under `media/documents/` (mount a persistent volume at
 
 ### Prerequisites
 
-- Python ≥ 3.12, Node ≥ 20, PostgreSQL (or use SQLite for quick experiments)
+- Python ≥ 3.12, Node ≥ 20, PostgreSQL
 
 ### Backend
 

@@ -56,7 +56,7 @@ class LightweightDatabaseCache(BaseDatabaseCache):
         """Normalise a raw `expires` column value to an aware datetime."""
         if isinstance(value, datetime):  # Postgres returns datetime objects.
             return value.replace(tzinfo=UTC) if value.tzinfo is None else value
-        parsed = parse_datetime(str(value))  # SQLite returns ISO strings.
+        parsed = parse_datetime(str(value))  # Defensive: raw string fallback.
         if parsed is None:
             raise ValueError(f"Unparseable cache expiry: {value!r}")
         return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
@@ -126,20 +126,12 @@ class LightweightDatabaseCache(BaseDatabaseCache):
         try:
             with connection.cursor() as cursor:
                 self._maybe_cleanup(cursor, quote_name, table, connection)
-                if connection.vendor == "sqlite":
-                    # Atomic upsert on the primary key.
-                    cursor.execute(
-                        f"INSERT OR REPLACE INTO {table} "
-                        f"({cols[0]}, {cols[1]}, {cols[2]}) VALUES (%s, %s, %s)",
-                        [key, encoded, exp],
-                    )
-                else:
-                    cursor.execute(
-                        f"INSERT INTO {table} ({cols[0]}, {cols[1]}, {cols[2]}) "
-                        f"VALUES (%s, %s, %s) ON CONFLICT ({cols[0]}) DO UPDATE SET "
-                        f"{cols[1]} = EXCLUDED.{cols[1]}, {cols[2]} = EXCLUDED.{cols[2]}",
-                        [key, encoded, exp],
-                    )
+                cursor.execute(
+                    f"INSERT INTO {table} ({cols[0]}, {cols[1]}, {cols[2]}) "
+                    f"VALUES (%s, %s, %s) ON CONFLICT ({cols[0]}) DO UPDATE SET "
+                    f"{cols[1]} = EXCLUDED.{cols[1]}, {cols[2]} = EXCLUDED.{cols[2]}",
+                    [key, encoded, exp],
+                )
         except DatabaseError:
             # Match the stock backend: writes fail silently (thread safety).
             return False

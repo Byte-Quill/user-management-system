@@ -11,6 +11,20 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: kyc
+          POSTGRES_PASSWORD: kyc
+          POSTGRES_DB: kyc
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kyc -d kyc"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -27,12 +41,12 @@ jobs:
         run: python manage.py check
         env:
           DJANGO_DEBUG: "true"
-          DATABASE_URL: "sqlite:///ci.sqlite3"
+          DATABASE_URL: "postgres://kyc:kyc@localhost:5432/kyc"
       - name: Run tests
         run: python manage.py test kyc
         env:
           DJANGO_DEBUG: "true"
-          DATABASE_URL: "sqlite:///ci.sqlite3"
+          DATABASE_URL: "postgres://kyc:kyc@localhost:5432/kyc"
 
   frontend:
     runs-on: ubuntu-latest
