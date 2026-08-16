@@ -11,7 +11,6 @@ an attacker's page sends the cookie but fails the Origin check.
 """
 import logging
 import re
-from urllib.parse import urlparse
 
 from django.conf import settings
 from rest_framework import status
@@ -53,15 +52,20 @@ def origin_allowed(request) -> bool:
 
     Allowed: no Origin header (non-browser clients), same-origin requests
     (inherently not a CSRF vector — the Origin matches the request's own
-    Host), and explicitly configured CORS origins.
+    host), and explicitly configured CORS origins.
     """
     origin = request.headers.get("Origin")
     if not origin:
         # Non-browser client (curl, mobile). Not a CSRF vector.
         return True
-    # Same-origin: the SPA and API share a host (e.g. nginx proxying /api).
-    parsed = urlparse(origin)
-    if parsed.netloc == request.get_host():
+    # Same-origin: the SPA and API share an origin (e.g. nginx proxying
+    # /api). Rebuild the request's own origin from scheme + host (incl.
+    # port, honoring SECURE_PROXY_SSL_HEADER) instead of comparing the
+    # Origin's netloc to the Host header: browsers include non-standard
+    # ports in Origin ("http://host:8080") while a proxy may forward the
+    # Host header without one, and netloc equality would then reject a
+    # legitimate same-origin refresh.
+    if origin == f"{request.scheme}://{request.get_host()}":
         return True
     allowed = set(getattr(settings, "CORS_ALLOWED_ORIGINS", []))
     if origin in allowed:

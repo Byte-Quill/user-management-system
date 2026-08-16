@@ -180,6 +180,24 @@ class AuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_refresh_allows_same_origin_on_non_standard_port(self):
+        """Browsers include non-standard ports in Origin. With the port
+        preserved in the Host header (nginx $http_host), the same-origin
+        refresh must be accepted."""
+        make_user("new@kyc.local", User.Role.APPLICANT)
+        self.client.post(
+            "/api/auth/token/",
+            {"email": "new@kyc.local", "password": "Passw0rd!"},
+        )
+        # SERVER_PORT makes the test client send Host: testserver:8080, so
+        # Origin and Host both carry the non-standard port.
+        res = self.client.post(
+            "/api/auth/token/refresh/",
+            HTTP_ORIGIN="http://testserver:8080",
+            SERVER_PORT="8080",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
     def test_logout_clears_cookie(self):
         make_user("new@kyc.local", User.Role.APPLICANT)
         self.client.post(
