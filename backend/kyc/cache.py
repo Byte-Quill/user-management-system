@@ -11,10 +11,13 @@ removes its two main sources of overhead:
   without bound. Here a cheap indexed ``DELETE ... WHERE expires < now``
   runs at most once per process every ``CLEANUP_INTERVAL`` seconds.
 
-Only the hot methods (``get``/``set``/``delete``/``clear``) are overridden;
-everything else (``get_many``, ``incr``, ``has_key``, ...) is inherited from
-``BaseCache`` and built on top of these. The table schema is the one created
-by ``manage.py createcachetable`` (primary key on ``cache_key``, index on
+The CRUD methods (``get``/``set``/``add``/``touch``/``delete``/``clear``) are
+implemented directly; everything else (``get_many``, ``incr``, ``has_key``,
+...) is inherited from ``BaseCache`` and built on top of these. (``add`` and
+``touch`` are abstract on ``BaseCache``/``BaseDatabaseCache``, so they MUST be
+implemented here — allauth's JWT ``jti`` replay guard calls ``cache.add()`` on
+every social login.) The table schema is the one created by
+``manage.py createcachetable`` (primary key on ``cache_key``, index on
 ``expires``), so switching backends requires no migration.
 """
 
@@ -136,6 +139,62 @@ class LightweightDatabaseCache(BaseDatabaseCache):
             # Match the stock backend: writes fail silently (thread safety).
             return False
         return True
+
+    # -- add path (set-if-absent; required by allauth's jti replay guard) --
+
+    def add(self, key, value, timeout=DEFAULT_TIMEOUT, version=None):
+        """Set ``key`` only if it does not already exist (or is expired).
+        Returns True if the value was stored. Implemented as a single atomic
+        ``INSERT ... ON CONFLICT DO UPDATE ... WHERE expires < now`` so
+        concurrent callers cannot both succeed — this is what makes JWT ``jti``
+        replay protection race-free. An existing but expired row is treated as
+        absent, matching the stock backend's semantics."""
+        key = self.make_and_validate_key(key, version=version)
+        timeout = self.get_backend_timeout(timeout)
+        connection = self._connection(write=True)
+        quote_name = connection.ops.quote_name
+        table = quote_name(self._table)
+        exp = connection.ops.adapt_datetimefield_value(self._expiry(timeout))
+        now = connection.ops.adapt_datetimefield_value(tz_now())
+        encoded = self._encode(value)
+        cols = (quote_name("cache_key"), quote_name("value"), quote_name("expires"))
+
+        try:
+            with connection.cursor() as cursor:
+                self._maybe_cleanup(cursor, quote_name, table, connection)
+                cursor.execute(
+                    f"INSERT INTO {table} ({cols[0]}, {cols[1]}, {cols[2]}) "
+                    f"VALUES (%s, %s, %s) ON CONFLICT ({cols[0]}) DO UPDATE SET "
+                    f"{cols[1]} = EXCLUDED.{cols[1]}, {cols[2]} = EXCLUDED.{cols[2]} "
+                    f"WHERE {table}.{quote_name('expires')} < %s",
+                    [key, encoded, exp, now],
+                )
+                inserted = bool(cursor.rowcount)
+        except DatabaseError:
+            # Match the stock backend: writes fail silently (thread safety).
+            return False
+        return inserted
+
+    # -- touch path (extend expiry without rewriting the value) -----------
+
+    def touch(self, key, timeout=DEFAULT_TIMEOUT, version=None):
+        """Update ``key``'s expiry to ``timeout``. Returns True if the key
+        exists (and was updated), False otherwise. A single indexed UPDATE —
+        no read-modify-write round trip."""
+        key = self.make_and_validate_key(key, version=version)
+        timeout = self.get_backend_timeout(timeout)
+        connection = self._connection(write=True)
+        quote_name = connection.ops.quote_name
+        table = quote_name(self._table)
+        exp = connection.ops.adapt_datetimefield_value(self._expiry(timeout))
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"UPDATE {table} SET {quote_name('expires')} = %s "
+                f"WHERE {quote_name('cache_key')} = %s",
+                [exp, key],
+            )
+            return bool(cursor.rowcount)
 
     # -- delete path -----------------------------------------------------
 

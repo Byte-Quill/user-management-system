@@ -48,6 +48,50 @@ def make_user(email, role, password="Passw0rd!"):
     )
 
 
+class LightweightCacheTests(TestCase):
+    """Regression tests for kyc.cache.LightweightDatabaseCache.
+
+    ``add()`` is security-critical: allauth's JWT ``jti`` replay guard calls
+    it on every Google login. ``BaseDatabaseCache`` leaves ``add``/``touch``
+    abstract, so if this backend ever stops implementing them, every social
+    login crashes with NotImplementedError — and the Google tests below would
+    not catch it because they mock token verification.
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def test_add_is_set_if_absent(self):
+        self.assertTrue(cache.add("k", "v1", timeout=60))
+        self.assertFalse(cache.add("k", "v2", timeout=60))
+        self.assertEqual(cache.get("k"), "v1")
+
+    def test_add_after_expiry_succeeds(self):
+        self.assertTrue(cache.add("k", "v1", timeout=1))
+        time.sleep(1.1)
+        self.assertTrue(cache.add("k", "v2", timeout=60))
+        self.assertEqual(cache.get("k"), "v2")
+
+    def test_touch_updates_expiry(self):
+        cache.set("k", "v", timeout=60)
+        self.assertTrue(cache.touch("k", timeout=120))
+        self.assertFalse(cache.touch("missing", timeout=120))
+
+    def test_jti_replay_guard(self):
+        """The real allauth replay check must accept a first use and reject a
+        replayed jti."""
+        from allauth.socialaccount.internal import jwtkit
+
+        claims = {
+            "iss": "https://accounts.google.com",
+            "exp": int(time.time()) + 300,
+            "jti": "replay-guard-jti",
+        }
+        jwtkit.verify_jti(claims)  # first use: no exception
+        with self.assertRaises(OAuth2Error):
+            jwtkit.verify_jti(claims)
+
+
 @FAST_PASSWORD_HASHERS
 class AuthTests(APITestCase):
     def setUp(self):
