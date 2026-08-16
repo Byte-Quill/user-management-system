@@ -23,6 +23,11 @@ services:
       DJANGO_SECURE_SSL_REDIRECT: "true"
       # Django admin CSRF requires the public origin to be trusted under HTTPS.
       DJANGO_CSRF_TRUSTED_ORIGINS: "https://${SITE_ADDRESS:?Set SITE_ADDRESS (public domain, or localhost for testing)}"
+      # Two trusted proxy hops now (Caddy -> nginx -> backend). Both append
+      # the peer address to X-Forwarded-For, so IP-keyed throttles must read
+      # the second-to-last entry (the client IP Caddy appended); with the
+      # default of 1 they would all key on nginx's Docker IP instead.
+      DJANGO_NUM_PROXIES: "2"
 
   caddy:
     image: caddy:2-alpine

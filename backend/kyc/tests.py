@@ -295,6 +295,43 @@ class AuthTests(APITestCase):
         res = self.client.post("/api/auth/token/refresh/")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
+    def test_blacklisted_refresh_token_cannot_be_reused(self):
+        """A refresh token captured before logout (e.g. exfiltrated via logs
+        or a compromised client) must stop working once the session is
+        blacklisted — replay after logout is a session-hijack vector."""
+        make_user("new@kyc.local", User.Role.APPLICANT)
+        self.client.post(
+            "/api/auth/token/",
+            {"email": "new@kyc.local", "password": "Passw0rd!"},
+        )
+        stolen = self.client.cookies["refresh_token"].value
+        self.client.post("/api/auth/logout/")
+
+        # Replay the pre-logout token directly in the body.
+        res = self.client.post("/api/auth/token/refresh/", {"refresh": stolen})
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_rotated_refresh_token_is_blacklisted(self):
+        """BLACKLIST_AFTER_ROTATION: after a refresh rotates the token, the
+        old value must be unusable. If it were not, a stolen refresh token
+        would stay valid for its full 7-day lifetime despite rotation."""
+        make_user("new@kyc.local", User.Role.APPLICANT)
+        self.client.post(
+            "/api/auth/token/",
+            {"email": "new@kyc.local", "password": "Passw0rd!"},
+        )
+        old = self.client.cookies["refresh_token"].value
+        res = self.client.post("/api/auth/token/refresh/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertNotEqual(self.client.cookies["refresh_token"].value, old)
+
+        # Drop the rotated cookie so the replay goes through the body
+        # fallback (the view prefers the cookie when present).
+        del self.client.cookies["refresh_token"]
+        # The pre-rotation token must now be rejected.
+        res = self.client.post("/api/auth/token/refresh/", {"refresh": old})
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
 
 def _google_sociallogin(email="guser@gmail.com", uid="google-uid-1", verified=True):
     """Build an unsaved SocialLogin shaped like allauth's Google provider output."""
