@@ -53,19 +53,21 @@ class DocumentSerializer(serializers.ModelSerializer):
 
     def get_file(self, obj):
         # List serialization (review queue, dashboard) only needs metadata —
-        # skip the Supabase signed-URL round-trip entirely.
-        if not self.context.get("include_signed_url", True):
+        # skip building the per-document download URL.
+        if not self.context.get("include_document_url", True):
             return None
-        if obj.storage_path:
-            from kyc.supabase_client import create_signed_url
-            url = create_signed_url(obj.storage_path)
-            if url:
-                return url
-        # Fallback to local file URL (requires request in context)
+        if not obj.file:
+            return None
         request = self.context.get("request")
-        if obj.file and request:
-            return request.build_absolute_uri(obj.file.url)
-        return obj.file.url if obj.file else None
+        if not request:
+            return None
+        # Time-limited signed URL served by our own download view: the token
+        # is only issued to users who already passed the permission checks,
+        # so the browser can open the file in a new tab without the JWT.
+        from kyc.services import document_download_token
+
+        url = f"/api/documents/{obj.id}/download/?token={document_download_token(obj.id)}"
+        return request.build_absolute_uri(url)
 
 
 class AuditLogSerializer(serializers.ModelSerializer):

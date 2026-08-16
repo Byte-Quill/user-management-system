@@ -338,6 +338,50 @@ class ApplicationFlowTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_document_download_signed_url(self):
+        """Detail responses carry a signed download URL that serves the file."""
+        self.auth(self.applicant)
+        app_id = self.create_app()
+        res = self.upload_doc(app_id)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        doc_id = res.data["id"]
+
+        # The upload response and detail view expose a signed URL.
+        self.assertIn("token=", res.data["file"])
+        res = self.client.get(f"/api/applications/{app_id}/")
+        doc_url = res.data["documents"][0]["file"]
+        self.assertIn(f"/api/documents/{doc_id}/download/?token=", doc_url)
+
+        # The URL works WITHOUT the JWT (browser new-tab semantics)...
+        self.client.credentials()
+        res = self.client.get(doc_url)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res["Content-Type"], "application/pdf")
+        content = b"".join(res.streaming_content)
+        self.assertTrue(content.startswith(b"%PDF-1.4"))
+
+        # ...but a missing, forged, or mismatched token is rejected.
+        res = self.client.get(f"/api/documents/{doc_id}/download/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+        res = self.client.get(f"/api/documents/{doc_id}/download/?token=forged")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+        # A valid token for another document must not grant access.
+        from kyc.services import document_download_token
+
+        other_token = document_download_token("00000000-0000-0000-0000-000000000000")
+        res = self.client.get(f"/api/documents/{doc_id}/download/?token={other_token}")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_download_url_omitted_in_list_views(self):
+        """List payloads stay lean: no per-document download URLs."""
+        self.auth(self.applicant)
+        app_id = self.create_app()
+        self.upload_doc(app_id)
+        res = self.client.get("/api/applications/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res.data["results"][0]["documents"][0]["file"])
+
 
 # The admin templates reference static assets. The production storage backend
 # (CompressedManifestStaticFilesStorage) needs a collectstatic manifest, which

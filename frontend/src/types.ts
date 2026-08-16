@@ -19,7 +19,8 @@ export type ApplicationStatus =
 export interface KycDocument {
   id: string;
   doc_type: "id_proof" | "address_proof" | "selfie";
-  file: string;
+  /** Signed download URL; null in list payloads (metadata only). */
+  file: string | null;
   original_filename: string;
   uploaded_at: string;
 }

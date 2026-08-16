@@ -23,13 +23,13 @@ class DocumentInline(admin.TabularInline):
     """Read-only view of an application's documents.
 
     Uploads and removals must go through the API so that content validation,
-    the Supabase mirror, and the audit trail are applied consistently.
+    file cleanup, and the audit trail are applied consistently.
     """
 
     model = Document
     extra = 0
-    fields = ("doc_type", "original_filename", "uploaded_at", "storage_path")
-    readonly_fields = ("doc_type", "original_filename", "uploaded_at", "storage_path")
+    fields = ("doc_type", "original_filename", "uploaded_at")
+    readonly_fields = ("doc_type", "original_filename", "uploaded_at")
 
     def has_add_permission(self, request, obj=None):
         return False

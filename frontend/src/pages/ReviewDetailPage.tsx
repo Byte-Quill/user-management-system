@@ -114,14 +114,18 @@ export default function ReviewDetailPage() {
                     {doc.doc_type.replace("_", " ")}
                   </span>{" "}
                   —{" "}
-                  <a
-                    href={doc.file}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-600 hover:underline"
-                  >
-                    {doc.original_filename}
-                  </a>
+                  {doc.file ? (
+                    <a
+                      href={doc.file}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      {doc.original_filename}
+                    </a>
+                  ) : (
+                    <span>{doc.original_filename}</span>
+                  )}
                 </span>
                 <span className="text-slate-400">
                   {new Date(doc.uploaded_at).toLocaleDateString()}

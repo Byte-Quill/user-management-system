@@ -205,14 +205,18 @@ export default function ApplicationDetailPage() {
                     {doc.doc_type.replace("_", " ")}
                   </span>{" "}
                   —{" "}
-                  <a
-                    href={doc.file}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-600 hover:underline"
-                  >
-                    {doc.original_filename}
-                  </a>
+                  {doc.file ? (
+                    <a
+                      href={doc.file}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      {doc.original_filename}
+                    </a>
+                  ) : (
+                    <span>{doc.original_filename}</span>
+                  )}
                 </span>
                 <span className="flex items-center gap-3">
                   <span className="text-slate-400">

@@ -84,9 +84,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# Database: PostgreSQL (Supabase) via DATABASE_URL.
-# Set DATABASE_URL to your Supabase Postgres connection string, e.g.
-#   postgres://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+# Database: PostgreSQL via DATABASE_URL (any instance: self-hosted,
+# docker-compose, or managed). Example:
+#   postgres://kyc:kyc@localhost:5432/kyc
 DATABASES = {
     "default": dj_database_url.config(
         conn_max_age=600,
@@ -94,29 +94,19 @@ DATABASES = {
     )
 }
 
-# Rate-limit counters and sessions. In production use Redis so throttling is
-# shared across gunicorn workers/processes (LocMemCache is per-process and
-# gets wiped on restart). Redis is mandatory when DEBUG=false.
-_REDIS_URL = os.environ.get("REDIS_URL", "").strip()
-if not DEBUG and not _REDIS_URL:
-    raise RuntimeError(
-        "REDIS_URL must be set when DJANGO_DEBUG=false. "
-        "Redis is required for shared throttling and token blacklist across workers."
-    )
-if _REDIS_URL:
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.redis.RedisCache",
-            "LOCATION": _REDIS_URL,
-        }
+# Rate-limit counters and the document-URL cache. The database cache backend
+# keeps everything in the Postgres we already run: shared across all gunicorn
+# workers, survives restarts, and needs no extra service or dependency.
+# Throttling at this scale is a handful of indexed key/value lookups per
+# request — negligible. (The JWT blacklist lives in Postgres tables via the
+# token_blacklist app, not in the cache.) If load ever demands a real KV
+# store, swap BACKEND/LOCATION to Valkey (BSD-3, Redis-protocol compatible).
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "kyc_cache",
     }
-else:
-    CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            "LOCATION": "kyc-default",
-        }
-    }
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -159,11 +149,17 @@ SIMPLE_JWT = {
 
 # Refresh token lives in an HttpOnly cookie (not localStorage) so XSS cannot
 # steal it. The access token is kept in memory on the client.
+# Set DJANGO_SECURE_SSL_REDIRECT=false when TLS terminates at a reverse proxy
+# that already forces HTTPS, or for plain-HTTP local deployments — the Secure
+# cookie flag must be off there or browsers will never send the cookie back.
+SSL_ENABLED = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "true").lower() == "true"
 JWT_AUTH_COOKIE = "refresh_token"
 JWT_AUTH_COOKIE_PATH = "/"
 JWT_AUTH_COOKIE_MAX_AGE = int(timedelta(days=7).total_seconds())
-JWT_AUTH_COOKIE_SECURE = not DEBUG
-JWT_AUTH_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"
+JWT_AUTH_COOKIE_SECURE = not DEBUG and SSL_ENABLED
+# SameSite=None (required for cross-origin cookie use) is only valid together
+# with the Secure flag; fall back to Lax when HTTPS is not in play.
+JWT_AUTH_COOKIE_SAMESITE = "None" if (not DEBUG and SSL_ENABLED) else "Lax"
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
@@ -249,13 +245,15 @@ STORAGES = {
 if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = "DENY"
-    SECURE_HSTS_SECONDS = 31536000
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    SECURE_SSL_REDIRECT = True
+    # HSTS and Secure cookies only make sense when HTTPS is actually in play.
+    if SSL_ENABLED:
+        SECURE_HSTS_SECONDS = 31536000
+        SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+        SECURE_HSTS_PRELOAD = True
+        SESSION_COOKIE_SECURE = True
+        CSRF_COOKIE_SECURE = True
+    SECURE_SSL_REDIRECT = SSL_ENABLED
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
     # Content Security Policy (Django 6 native, enforced by
     # ContentSecurityPolicyMiddleware). Restrictive, but allows inline styles
     # for Tailwind.
@@ -270,10 +268,3 @@ if not DEBUG:
         "form-action": [CSP.SELF],
         "base-uri": [CSP.SELF],
     }
-
-# Project URL and keys from the Supabase dashboard (Settings > API).
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
-# Storage bucket for KYC documents (created via the Supabase dashboard or CLI).
-SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "kyc-documents")
-USE_SUPABASE_STORAGE = bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)

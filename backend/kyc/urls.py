@@ -6,7 +6,13 @@ from .auth_views import (
     CookieTokenRefreshView,
     LogoutView,
 )
-from .views import KYCApplicationViewSet, MeView, RegisterView, ReviewQueueView
+from .views import (
+    DocumentDownloadView,
+    KYCApplicationViewSet,
+    MeView,
+    RegisterView,
+    ReviewQueueView,
+)
 
 router = DefaultRouter()
 router.register("applications", KYCApplicationViewSet, basename="application")
@@ -18,5 +24,10 @@ urlpatterns = [
     path("auth/logout/", LogoutView.as_view(), name="logout"),
     path("auth/me/", MeView.as_view(), name="me"),
     path("review-queue/", ReviewQueueView.as_view(), name="review_queue"),
+    path(
+        "documents/<uuid:doc_id>/download/",
+        DocumentDownloadView.as_view(),
+        name="document_download",
+    ),
     path("", include(router.urls)),
 ]

@@ -10,8 +10,6 @@ from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
 
-from . import supabase_client
-
 
 def validate_file_content(file_obj: UploadedFile):
     """Validate the file's content matches its extension (magic-byte sniff).
@@ -199,8 +197,6 @@ class Document(models.Model):
     doc_type = models.CharField(max_length=30, choices=DocType.choices)
     file = models.FileField(upload_to=document_upload_path)
     original_filename = models.CharField(max_length=255)
-    # Path of the mirrored copy in Supabase Storage, when configured.
-    storage_path = models.CharField(max_length=512, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -230,15 +226,10 @@ def cleanup_document_files(sender, instance, **kwargs):
     override while still emitting ``post_delete`` signals. Centralising the
     cleanup in a signal therefore covers every deletion path (API delete,
     admin single/bulk delete, and application cascade) so identity documents
-    are never left orphaned on disk or in Supabase Storage.
+    are never left orphaned on disk.
     """
     if instance.file:
         instance.file.delete(save=False)
-    if instance.storage_path:
-        # Best-effort mirror removal. The API delete path clears
-        # ``storage_path`` after its own strict deletion, so this only runs
-        # for admin/cascade deletions. Failures are logged by the client.
-        supabase_client.delete_document(instance.storage_path)
 
 
 class AuditLog(models.Model):

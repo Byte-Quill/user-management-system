@@ -1,17 +1,20 @@
-import logging
-import os
+import mimetypes
+from urllib.parse import quote
 
 from django.contrib.auth import get_user_model
+from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.signing import TimestampSigner
 from django.db import transaction
+from django.http import FileResponse
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from . import supabase_client
 from .models import AuditLog, Document, KYCApplication
 from .permissions import IsOwnerOrReviewer, IsReviewer
 from .serializers import (
@@ -22,11 +25,14 @@ from .serializers import (
     ReviewSerializer,
     UserSerializer,
 )
-from .services import log_action
+from .services import (
+    DOWNLOAD_TOKEN_MAX_AGE,
+    DOWNLOAD_TOKEN_SALT,
+    log_action,
+)
 from .throttles import RegisterThrottle, WriteThrottle
 
 User = get_user_model()
-logger = logging.getLogger("kyc")
 
 
 class RegisterView(generics.CreateAPIView):
@@ -69,9 +75,9 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         # List views only need document metadata (e.g. doc count); generating
-        # signed URLs is a Supabase network round-trip per document, so skip it.
+        # signed download URLs is skipped there to keep payloads lean.
         context = super().get_serializer_context()
-        context["include_signed_url"] = self.action != "list"
+        context["include_document_url"] = self.action != "list"
         return context
 
     def get_queryset(self):
@@ -145,43 +151,23 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             raise ValidationError(exc.message_dict if hasattr(exc, "message_dict") else exc.messages)
         document.save()
 
-        # Mirror the file to Supabase Storage when configured. In production the
-        # local copy is NOT served (WhiteNoise only serves static files), so a
-        # failed mirror means the document is unreachable: fail loudly and roll
-        # back rather than report a success that nobody can see.
-        if supabase_client.is_configured():
-            file_obj.seek(0)
-            ext = os.path.splitext(file_obj.name)[1].lower()
-            storage_path = f"{application.id}/{document.id}{ext}"
-            uploaded = supabase_client.upload_document(
-                storage_path, file_obj.read(), file_obj.content_type or "application/octet-stream"
-            )
-            if not uploaded:
-                document.delete()  # post_delete signal removes the file from disk
-                logger.error(
-                    "Document upload failed: Supabase mirror unavailable (application=%s)", application.id
-                )
-                return Response(
-                    {"detail": "Document storage is temporarily unavailable. Please retry."},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
-            document.storage_path = uploaded
-            document.save(update_fields=["storage_path"])
-
         log_action(
             application,
             request.user,
             AuditLog.Action.DOCUMENT_UPLOADED,
             detail=f"{doc_type}: {file_obj.name}",
         )
-        return Response(DocumentSerializer(document).data, status=status.HTTP_201_CREATED)
+        return Response(
+            DocumentSerializer(document, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=["delete"], url_path=r"documents/(?P<doc_id>[^/.]+)")
     def remove_document(self, request, pk=None, doc_id=None):
         """Remove one document while the application is still editable.
 
-        The Supabase mirror is deleted first; on failure the local row is kept
-        so a half-deleted document never leaves a dangling DB record.
+        The post_delete signal removes the file from disk, so the row and the
+        PII file always disappear together.
         """
         application = self.get_object()
         if application.applicant_id != request.user.id:
@@ -197,22 +183,6 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         except (Document.DoesNotExist, ValueError, DjangoValidationError):
             # ValueError/ValidationError: malformed UUID in the URL -> 404, never 500.
             raise NotFound("Document not found.")
-
-        if supabase_client.is_configured() and document.storage_path:
-            if not supabase_client.delete_document(document.storage_path):
-                logger.error(
-                    "Document removal failed: Supabase delete unavailable (application=%s, doc=%s)",
-                    application.id,
-                    document.id,
-                )
-                return Response(
-                    {"detail": "Document storage is temporarily unavailable. Please retry."},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
-            # Mirror removed; clear the path so the post_delete cleanup signal
-            # does not attempt a redundant Supabase delete.
-            document.storage_path = ""
-            document.save(update_fields=["storage_path"])
 
         doc_type = document.doc_type
         original_filename = document.original_filename
@@ -268,9 +238,9 @@ class ReviewQueueView(generics.ListAPIView):
 
     def get_serializer_context(self):
         # Queue rows only need document metadata (doc count); skip the
-        # per-document Supabase signed-URL round-trip like the list views.
+        # per-document download-URL generation like the list views.
         context = super().get_serializer_context()
-        context["include_signed_url"] = False
+        context["include_document_url"] = False
         return context
 
     def get_queryset(self):
@@ -279,3 +249,51 @@ class ReviewQueueView(generics.ListAPIView):
             .select_related("applicant")
             .prefetch_related("documents")
         )
+
+
+class DocumentDownloadView(APIView):
+    """Serve a document file behind a time-limited signed token.
+
+    Tokens are issued by the API only after the ownership/role permission
+    checks pass, and are verified here statelessly with Django's
+    ``TimestampSigner`` (HMAC + timestamp, keyed by SECRET_KEY). This lets
+    browsers open the file in a new tab without sending the JWT — the same
+    UX object-storage signed URLs provided, with no external service.
+    """
+
+    authentication_classes = ()
+    permission_classes = (AllowAny,)
+
+    def get(self, request, doc_id):
+        token = request.query_params.get("token", "")
+        try:
+            signed_id = TimestampSigner(salt=DOWNLOAD_TOKEN_SALT).unsign(
+                token, max_age=DOWNLOAD_TOKEN_MAX_AGE
+            )
+        except signing.BadSignature:
+            # Covers forged tokens, tampered ids, and expired timestamps.
+            # 404 (not 403) so an invalid token leaks nothing about the id.
+            raise NotFound("Document not found.")
+        if signed_id != str(doc_id):
+            # A valid token for a *different* document must not grant access.
+            raise NotFound("Document not found.")
+        try:
+            document = Document.objects.get(pk=doc_id)
+        except (Document.DoesNotExist, ValueError, DjangoValidationError):
+            raise NotFound("Document not found.")
+        if not document.file:
+            raise NotFound("Document not found.")
+        try:
+            handle = document.file.open("rb")
+        except (FileNotFoundError, ValueError):
+            raise NotFound("Document not found.")
+        content_type = (
+            mimetypes.guess_type(document.original_filename)[0]
+            or "application/octet-stream"
+        )
+        response = FileResponse(handle, content_type=content_type)
+        # RFC 5987 filename*: safe for non-ASCII and quote characters.
+        response["Content-Disposition"] = (
+            f"inline; filename*=UTF-8''{quote(document.original_filename)}"
+        )
+        return response

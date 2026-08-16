@@ -6,8 +6,6 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 
-from kyc.supabase_client import supabase_storage_ping
-
 logger = logging.getLogger("kyc.health")
 
 
@@ -18,8 +16,8 @@ def healthz(request):
 
 @csrf_exempt
 def readyz(request):
-    """Readiness: the process can serve traffic (DB + object storage reachable)."""
-    checks = {"database": False, "storage": False}
+    """Readiness: the process can serve traffic (database reachable)."""
+    checks = {"database": False}
 
     try:
         with connection.cursor() as cursor:
@@ -27,11 +25,6 @@ def readyz(request):
         checks["database"] = True
     except Exception as exc:  # noqa: BLE001 - health check must never crash
         logger.error("Readiness DB check failed: %s", exc)
-
-    try:
-        checks["storage"] = supabase_storage_ping()
-    except Exception as exc:  # noqa: BLE001 - health check must never crash
-        logger.error("Readiness storage check failed: %s", exc)
 
     ok = all(checks.values())
     return JsonResponse(

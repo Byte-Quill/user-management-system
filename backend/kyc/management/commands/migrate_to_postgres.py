@@ -1,7 +1,7 @@
-"""Migrate data from the local SQLite database to Postgres (Supabase).
+"""Migrate data from the local SQLite database to PostgreSQL.
 
 Usage:
-    # 1. Make sure DATABASE_URL points at your Supabase Postgres instance.
+    # 1. Make sure DATABASE_URL points at your PostgreSQL instance.
     # 2. Run migrations against Postgres first:
     #        python manage.py migrate
     # 3. Then run this command with the SQLite file as the source:

@@ -5,12 +5,10 @@ django-cors-headers>=4.9,<5.0
 # CSP is provided by Django 6 itself (SECURE_CSP + ContentSecurityPolicyMiddleware).
 gunicorn>=26.0,<27.0
 whitenoise>=6.12,<7.0
-# Supabase (Storage REST) + PostgreSQL
-requests>=2.34,<3.0
+# PostgreSQL
 psycopg2-binary>=2.9.12,<3.0
 dj-database-url>=3.1,<4.0
 python-dotenv>=1.2,<2.0
 python-json-logger>=3.3,<4.0
-# Required by django.core.cache.backends.redis.RedisCache (throttling + JWT
-# blacklist when REDIS_URL is set, i.e. always in production).
-redis>=5.0,<7.0
+# Caching/throttling uses Django's database cache backend (Postgres-backed);
+# no Redis service or client is required.

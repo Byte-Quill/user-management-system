@@ -6,7 +6,9 @@ RUN npm ci
 
 COPY . .
 
-# VITE_API_URL must be set at build time (Railway: add as build arg / env)
+# VITE_API_URL is OPTIONAL. Leave it unset when the SPA is served from the
+# same origin as the API (e.g. the docker-compose nginx proxy) — the client
+# then uses the relative "/api" base automatically.
 ARG VITE_API_URL
 ENV VITE_API_URL=${VITE_API_URL}
 

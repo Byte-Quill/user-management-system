@@ -11,6 +11,7 @@ an attacker's page sends the cookie but fails the Origin check.
 """
 import logging
 import re
+from urllib.parse import urlparse
 
 from django.conf import settings
 from rest_framework import status
@@ -48,10 +49,19 @@ def _delete_refresh_cookie(response: Response) -> None:
 
 
 def origin_allowed(request) -> bool:
-    """Return True when the request Origin (if any) is a configured CORS origin."""
+    """Return True when the request Origin (if any) is safe for cookie auth.
+
+    Allowed: no Origin header (non-browser clients), same-origin requests
+    (inherently not a CSRF vector — the Origin matches the request's own
+    Host), and explicitly configured CORS origins.
+    """
     origin = request.headers.get("Origin")
     if not origin:
         # Non-browser client (curl, mobile). Not a CSRF vector.
+        return True
+    # Same-origin: the SPA and API share a host (e.g. nginx proxying /api).
+    parsed = urlparse(origin)
+    if parsed.netloc == request.get_host():
         return True
     allowed = set(getattr(settings, "CORS_ALLOWED_ORIGINS", []))
     if origin in allowed:

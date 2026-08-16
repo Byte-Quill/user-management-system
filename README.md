@@ -1,36 +1,45 @@
 # KYC Application Verification System
 
-A full-stack KYC (Know Your Customer) application and review system.
+A full-stack KYC (Know Your Customer) application and review system built on
+a **100% free and open-source stack** — no paid services, no vendor lock-in.
 
 - **Backend:** Django 6 + Django REST Framework + SimpleJWT (Python ≥ 3.12)
 - **Frontend:** React 19 + TypeScript + Vite + Tailwind CSS 4 (SPA)
-- **Database:** PostgreSQL (Supabase) via `DATABASE_URL`
-- **File storage:** Supabase Storage (private bucket, signed URLs) with local
-  `media/` fallback
-- **Cache / rate limiting:** Redis (required in production)
-- **Deployment:** Render (backend + Redis) and any static host or the included
-  nginx Docker image (frontend)
+- **Database:** PostgreSQL (self-hosted, e.g. via the included docker-compose)
+- **File storage:** local `media/` volume, served through an authenticated,
+  time-limited signed download URL
+- **Cache / rate limiting:** Django's database cache (Postgres-backed) — no
+  Redis service required
+- **Deployment:** docker-compose (Postgres + backend + nginx), Render
+  (`render.yaml`), or any Docker host
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────┐        ┌──────────────────────────────┐
-│   Frontend   │  /api  │           Backend            │
-│  React SPA   │ ─────► │  Django 6 + DRF + SimpleJWT  │
-│  (Vite)      │        │  gunicorn + WhiteNoise       │
-└──────────────┘        └──────┬──────────────┬────────┘
-                               │              │
-                        ┌──────▼─────┐  ┌─────▼──────────┐
-                        │ PostgreSQL │  │ Supabase       │
-                        │ (Supabase) │  │ Storage bucket │
-                        └────────────┘  └────────────────┘
-                               ▲
-                        ┌──────┴─────┐
-                        │   Redis    │  throttling, JWT blacklist,
-                        └────────────┘  signed-URL cache
+┌──────────────────────────────────────────────────────┐
+│                    nginx (web)                       │
+│   SPA static files  +  /api, /media proxy            │
+└──────────────┬───────────────────────────────────────┘
+               │ same origin (no CORS)
+        ┌──────▼──────────────────────────────┐
+        │             Backend                 │
+        │  Django 6 + DRF + SimpleJWT         │
+        │  gunicorn + WhiteNoise              │
+        └──────┬─────────────────┬────────────┘
+               │                 │
+        ┌──────▼─────┐    ┌──────▼──────────┐
+        │ PostgreSQL │    │ media/ volume   │
+        │ (db)       │    │ KYC documents   │
+        │ + cache    │    └─────────────────┘
+        │   tables   │
+        └────────────┘
 ```
+
+Documents are served by the backend through a permission-checked endpoint
+that issues one-hour signed download URLs (Django `TimestampSigner`), so
+browsers can open files in a new tab without sending the JWT.
 
 ---
 
@@ -46,7 +55,6 @@ user-management-system/
 │   │   ├── auth_views.py       # cookie-based JWT login/refresh/logout
 │   │   ├── serializers.py      # DRF serializers (signed URLs for documents)
 │   │   ├── permissions.py      # role + ownership permissions
-│   │   ├── supabase_client.py  # thin REST client for Supabase Storage
 │   │   ├── middleware.py       # request-ID middleware
 │   │   ├── throttles.py        # login/register rate limits
 │   │   ├── health.py           # /healthz and /readyz probes
@@ -67,11 +75,11 @@ user-management-system/
 │   │   ├── hooks/              # usePaginatedList
 │   │   └── pages/              # Dashboard, ApplicationForm/Detail,
 │   │                           # ReviewQueue/Detail, Login, Register
-│   ├── Dockerfile              # nginx static image
+│   ├── Dockerfile              # nginx static image (also proxies /api)
 │   ├── nginx.conf
 │   └── package.json
-├── supabase/README.md          # Supabase setup guide
-└── render.yaml                 # Render blueprint (backend + Redis)
+├── docker-compose.yml          # self-hosted stack: Postgres + backend + nginx
+└── render.yaml                 # Render blueprint (backend only)
 ```
 
 ---
@@ -94,8 +102,7 @@ KYCApplication
 Document
   ├── application → KYCApplication
   ├── doc_type: id_proof | address_proof | selfie
-  ├── file (FileField) — local storage
-  ├── storage_path — Supabase Storage path when mirrored
+  ├── file (FileField) — stored in MEDIA_ROOT (media/ volume)
   └── original_filename, uploaded_at
 
 AuditLog
@@ -136,7 +143,8 @@ draft ──submit──► submitted ──approve──► approved
   session.
 - Cookie-authenticated endpoints validate the `Origin` header against the
   configured CORS origins as CSRF protection.
-- Login and registration are rate-limited (shared via Redis in production).
+- Login and registration are rate-limited (counters shared across workers
+  via the Postgres-backed database cache).
 
 ---
 
@@ -157,13 +165,16 @@ draft ──submit──► submitted ──approve──► approved
 | PATCH  | `/api/applications/{id}/`                    | ✅   | Applicant (draft only)        | Update draft                         |
 | POST   | `/api/applications/{id}/submit/`             | ✅   | Applicant                     | Submit for review                    |
 | POST   | `/api/applications/{id}/documents/`          | ✅   | Applicant                     | Upload document                      |
+| GET    | `/api/applications/{id}/documents/{doc_id}/` | ❌   | Signed token                | Download document (1-hour signed URL) |
 | DELETE | `/api/applications/{id}/documents/{doc_id}/` | ✅   | Applicant                     | Delete document (file removed too)   |
 | POST   | `/api/applications/{id}/review/`             | ✅   | Reviewer / Admin              | approve / reject / request_resubmission |
 | GET    | `/api/applications/{id}/audit/`              | ✅   | Owner / Reviewer / Admin      | Audit trail (paginated)              |
 | GET    | `/api/review-queue/`                         | ✅   | Reviewer / Admin              | Pending review queue                 |
 
 Document uploads are validated for extension (jpg/jpeg/png/pdf), declared
-content type, magic-byte content, and size (≤ 5 MB).
+content type, magic-byte content, and size (≤ 5 MB). Document downloads use
+one-hour signed URLs issued only to users who pass the ownership/role
+permission checks, so files can be opened in a new tab without the JWT.
 
 ---
 
@@ -191,22 +202,19 @@ content type, magic-byte content, and size (≤ 5 MB).
 | `DJANGO_DEBUG`                | ✅       | `true` / `false`                               |
 | `DJANGO_ALLOWED_HOSTS`        | ✅       | Comma-separated hosts                          |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | ✅       | Comma-separated HTTPS origins                  |
-| `DATABASE_URL`                | ✅       | Postgres connection string (Supabase)          |
-| `REDIS_URL`                   | ✅ (prod)| Required when `DJANGO_DEBUG=false`             |
-| `SUPABASE_URL`                | ❌       | `https://<ref>.supabase.co`                    |
-| `SUPABASE_SERVICE_ROLE_KEY`   | ❌       | Service role key (storage mirroring)           |
-| `SUPABASE_STORAGE_BUCKET`     | ❌       | Bucket name (default `kyc-documents`)          |
-| `CORS_ALLOWED_ORIGINS`        | ✅       | Frontend URL(s), comma-separated               |
+| `DATABASE_URL`                | ✅       | PostgreSQL connection string (any instance)    |
+| `CORS_ALLOWED_ORIGINS`        | ❌       | Frontend URL(s) when served cross-origin; not needed for same-origin deploys |
+| `DJANGO_SECURE_SSL_REDIRECT`  | ❌       | `false` when TLS terminates at a proxy that already forces HTTPS (default `true` in prod) |
 | `CUSTOM_DOMAIN`               | ❌       | Optional extra CORS origin                     |
 
-When Supabase is not configured, documents are stored locally under
-`media/documents/` and served by Django (debug) or your web server.
+Documents are stored under `media/documents/` (mount a persistent volume at
+`/app/media` in production) and served through the signed download endpoint.
 
 ### Frontend
 
 | Variable       | Required | Description                          |
 | -------------- | -------- | ------------------------------------ |
-| `VITE_API_URL` | ✅       | Backend base URL, e.g. `https://kyc-backend.onrender.com` |
+| `VITE_API_URL` | ❌       | Backend base URL when the SPA is served from a different origin; leave unset for same-origin deploys (uses `/api`) |
 
 ---
 
@@ -214,8 +222,7 @@ When Supabase is not configured, documents are stored locally under
 
 ### Prerequisites
 
-- Python ≥ 3.12, Node ≥ 20, Postgres (or a Supabase project), Redis (optional
-  in debug mode)
+- Python ≥ 3.12, Node ≥ 20, PostgreSQL (or use SQLite for quick experiments)
 
 ### Backend
 
@@ -223,8 +230,9 @@ When Supabase is not configured, documents are stored locally under
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-# create backend/.env with DATABASE_URL etc. (see supabase/README.md)
+# create backend/.env with DATABASE_URL etc. (see backend/.env.example)
 python manage.py migrate
+python manage.py createcachetable   # cache tables for throttling
 python manage.py seed_demo          # optional demo users + data
 python manage.py runserver          # http://127.0.0.1:8000
 ```
@@ -250,23 +258,37 @@ npm run dev                         # http://localhost:5173
 
 ```bash
 cd backend
-python manage.py test kyc           # 18 tests: auth, flow, uploads, permissions
+python manage.py test kyc           # 24 tests: auth, flow, uploads, downloads, permissions, admin
 ```
 
 ---
 
 ## Deployment
 
-### Render (backend + Redis)
+### Self-hosted (docker-compose) — recommended, $0
 
-`render.yaml` defines a Python web service (`kyc-backend`) and a Redis
-service (`kyc-redis`):
+The whole stack (PostgreSQL + backend + nginx) runs from open-source images:
+
+```bash
+docker compose up --build
+# open http://localhost:8080
+```
+
+- nginx serves the SPA and proxies `/api` + `/media` to the backend, so the
+  deployment is same-origin: no CORS configuration needed.
+- Documents persist in the `media_data` volume; the database in `pg_data`.
+- For production: set a strong `DJANGO_SECRET_KEY`, put TLS in front (e.g.
+  Caddy), and back up both volumes (`pg_dump` + volume copy).
+
+### Render (backend)
+
+`render.yaml` defines a single Python web service (`kyc-backend`):
 
 1. Render → **New → Blueprint** → select this repo.
 2. Set the `sync: false` env vars in the dashboard: `DATABASE_URL`,
-   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORS_ALLOWED_ORIGINS`,
-   `DJANGO_CSRF_TRUSTED_ORIGINS`.
-3. Deploy. The start command runs `migrate`, `collectstatic`, then gunicorn.
+   `CORS_ALLOWED_ORIGINS`, `DJANGO_CSRF_TRUSTED_ORIGINS`.
+3. Deploy. The start command runs `migrate`, `createcachetable`,
+   `collectstatic`, then gunicorn.
 
 The backend can also run from `backend/Dockerfile`
 (`python:3.13-slim`, non-root user, `entrypoint.sh` runs migrations).
@@ -277,18 +299,12 @@ Build the SPA and serve it statically:
 
 ```bash
 cd frontend
-VITE_API_URL=https://kyc-backend.onrender.com npm run build
+VITE_API_URL=https://kyc-backend.onrender.com npm run build   # cross-origin only
 ```
 
 `frontend/Dockerfile` builds the app and serves `dist/` with nginx
 (SPA fallback, hashed-asset caching, gzip, security headers,
-`client_max_body_size 6m`).
-
-### Supabase
-
-See `supabase/README.md`: create the project, copy the connection string and
-service role key, and create a **private** `kyc-documents` storage bucket.
-Documents are served through time-limited signed URLs (cached server-side).
+`client_max_body_size 6m`, `/api` + `/media` proxy for same-origin deploys).
 
 ---
 
@@ -299,8 +315,10 @@ Documents are served through time-limited signed URLs (cached server-side).
 - Django 6's built-in CSP middleware is enabled via `SECURE_CSP`; plus
   `X-Frame-Options`, `X-Content-Type-Options`, HSTS, and secure cookies.
 - Uploads are validated by extension, MIME type, magic bytes, and size.
-- Deleting a `Document` also deletes the file from disk/Supabase (PII).
-- Login/register endpoints are throttled via Redis-backed counters.
+- Deleting a `Document` also deletes the file from disk (PII).
+- Document downloads require a one-hour signed token issued only after the
+  ownership/role permission checks pass.
+- Login/register endpoints are throttled via Postgres-backed cache counters.
 
 ---
 
