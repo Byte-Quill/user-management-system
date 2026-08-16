@@ -8,8 +8,9 @@
 # Production notes:
 #   - Set a strong DJANGO_SECRET_KEY (never ship the default).
 #   - Set POSTGRES_PASSWORD (required; no default).
-#   - Put TLS in front (e.g. Caddy) and drop DJANGO_SECURE_SSL_REDIRECT=false
-#     only if the proxy already forces HTTPS; otherwise keep the default.
+#   - This base stack is PLAIN HTTP and binds to 127.0.0.1 only. Anything
+#     beyond localhost must use the TLS profile (docker-compose.tls.yml),
+#     which adds a Caddy edge and switches Django to HTTPS mode.
 #   - Back up Postgres (docker compose exec db pg_dump -U kyc kyc > backup.sql)
 #     and the media_data volume.
 
@@ -83,7 +84,12 @@ services:
       # Only substitute XFP; leave nginx's own $variables untouched.
       NGINX_ENVSUBST_FILTER: XFP
     ports:
-      - "8080:80"
+      # Loopback only: this stack is plain HTTP (no Secure cookies/HSTS),
+      # so exposing it on all interfaces would put cleartext session cookies
+      # and KYC PII on the network. Remote access goes through the TLS
+      # profile, which binds this container to 127.0.0.1 as well and puts
+      # Caddy on 80/443 instead.
+      - "127.0.0.1:8080:80"
     depends_on:
       backend:
         condition: service_healthy
