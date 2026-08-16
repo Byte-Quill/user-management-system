@@ -1,0 +1,51 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels: [dependencies, python]
+    commit-message:
+      prefix: deps(backend)
+    groups:
+      django:
+        patterns: [django, djangorestframework*]
+      minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels: [dependencies, javascript]
+    commit-message:
+      prefix: deps(frontend)
+    groups:
+      minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: monthly
+    labels: [dependencies, docker]
+    commit-message:
+      prefix: deps(docker)
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: monthly
+    labels: [dependencies, docker]
+    commit-message:
+      prefix: deps(docker)
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: ci
