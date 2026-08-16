@@ -37,7 +37,7 @@ export default function ReviewDetailPage() {
   if (error && !app) return <p className="text-red-600">{error}</p>;
   if (!app) return <p className="text-slate-500">Loading…</p>;
 
-  const reviewable = app.status === "submitted" || app.status === "under_review";
+  const reviewable = app.status === "submitted";
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();

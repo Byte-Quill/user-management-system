@@ -7,18 +7,24 @@ lightweight. All helpers degrade to no-ops when Supabase is unconfigured.
 import logging
 import time
 from collections.abc import Callable
-from typing import TypeVar
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
+# Shared session: keeps TCP/TLS connections to Supabase alive across calls
+# instead of paying a fresh handshake on every request.
+_session = requests.Session()
 
 # Retry configuration for idempotent Supabase operations
 _MAX_RETRIES = 2
 _BASE_BACKOFF = 0.5  # seconds
+
+# Signed URLs are valid for 1h; cache them a bit shorter so callers never
+# receive a URL that expires mid-use.
+_SIGNED_URL_TTL = 55 * 60
 
 
 def _retry_idempotent[T](func: Callable[[], T], operation: str) -> T | None:
@@ -65,7 +71,7 @@ def supabase_storage_ping() -> bool:
             f"{settings.SUPABASE_URL}/storage/v1/bucket/"
             f"{settings.SUPABASE_STORAGE_BUCKET}"
         )
-        res = requests.get(url, headers=_headers(), timeout=10)
+        res = _session.get(url, headers=_headers(), timeout=10)
         return res.status_code in (200, 404)  # 404 = bucket listing endpoint differs
     except Exception as exc:  # noqa: BLE001
         logger.warning("Supabase storage ping failed: %s", exc)
@@ -85,7 +91,7 @@ def upload_document(path: str, data: bytes, content_type: str) -> str | None:
         headers = _headers()
         headers["Content-Type"] = content_type
         headers["x-upsert"] = "true"
-        res = requests.post(url, data=data, headers=headers, timeout=30)
+        res = _session.post(url, data=data, headers=headers, timeout=30)
         res.raise_for_status()
         return path
 
@@ -102,29 +108,46 @@ def delete_document(path: str) -> bool:
             f"{settings.SUPABASE_URL}/storage/v1/object/"
             f"{settings.SUPABASE_STORAGE_BUCKET}/{path}"
         )
-        res = requests.delete(url, headers=_headers(), timeout=30)
+        res = _session.delete(url, headers=_headers(), timeout=30)
         res.raise_for_status()
         return True
 
     result = _retry_idempotent(_do_delete, "Supabase storage delete")
+    if result:
+        # Drop any cached signed URL so a removed object can't be re-shared.
+        cache.delete(f"supabase-signed-url:{path}")
     return result is True
 
 
 def create_signed_url(path: str, expires_in: int = 3600) -> str | None:
-    """Return a time-limited signed URL for a private object."""
+    """Return a time-limited signed URL for a private object.
+
+    Signed URLs are cached (keyed by storage path) so detail views don't pay
+    one Supabase round-trip per document on every request.
+    """
     if not is_configured():
         return None
+    cache_key = f"supabase-signed-url:{path}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
     try:
         url = (
             f"{settings.SUPABASE_URL}/storage/v1/object/sign/"
             f"{settings.SUPABASE_STORAGE_BUCKET}/{path}"
         )
-        res = requests.post(
+        res = _session.post(
             url, json={"expiresIn": expires_in}, headers=_headers(), timeout=10
         )
         res.raise_for_status()
         signed = res.json().get("signedURL")
-        return f"{settings.SUPABASE_URL}{signed}" if signed else None
+        if not signed:
+            return None
+        full_url = f"{settings.SUPABASE_URL}{signed}"
+        # Never cache longer than the URL's remaining validity.
+        ttl = max(60, min(_SIGNED_URL_TTL, expires_in - 300))
+        cache.set(cache_key, full_url, ttl)
+        return full_url
     except Exception as exc:  # noqa: BLE001
         logger.warning("Supabase create_signed_url failed: %s", exc)
         return None

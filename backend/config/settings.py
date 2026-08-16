@@ -5,6 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import dj_database_url
+from django.utils.csp import CSP
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -50,7 +51,6 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    "csp.middleware.CSPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -58,6 +58,9 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Django 6's built-in CSP middleware (configured via SECURE_CSP below).
+    # Docs recommend placing it near the bottom of the stack.
+    "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "kyc.middleware.RequestIDMiddleware",
 ]
 
@@ -201,7 +204,8 @@ LOGGING: dict[str, object] = {
     },
     "formatters": {
         "json": {
-            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+            # python-json-logger >= 3.1 moved JsonFormatter to pythonjsonlogger.json
+            "()": "pythonjsonlogger.json.JsonFormatter",
             "format": "%(asctime)s %(name)s %(levelname)s %(request_id)s %(message)s",
         },
         "plain": {
@@ -232,10 +236,17 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+# STATICFILES_STORAGE was removed in Django 5.1; use the STORAGES dict instead.
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 if not DEBUG:
-    SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = "DENY"
     SECURE_HSTS_SECONDS = 31536000
@@ -245,17 +256,19 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    # Content Security Policy - restrictive but allows inline styles for Tailwind
-    CONTENT_SECURITY_POLICY = {
-        "DEFAULT_SRC": ["'self'"],
-        "SCRIPT_SRC": ["'self'"],
-        "STYLE_SRC": ["'self'", "'unsafe-inline'"],  # Tailwind uses inline styles
-        "IMG_SRC": ["'self'", "data:", "https:"],
-        "FONT_SRC": ["'self'", "data:"],
-        "CONNECT_SRC": ["'self'"],
-        "FRAME_ANCESTORS": ["'none'"],
-        "FORM_ACTION": ["'self'"],
-        "BASE_URI": ["'self'"],
+    # Content Security Policy (Django 6 native, enforced by
+    # ContentSecurityPolicyMiddleware). Restrictive, but allows inline styles
+    # for Tailwind.
+    SECURE_CSP = {
+        "default-src": [CSP.SELF],
+        "script-src": [CSP.SELF],
+        "style-src": [CSP.SELF, "'unsafe-inline'"],  # Tailwind uses inline styles
+        "img-src": [CSP.SELF, "data:", "https:"],
+        "font-src": [CSP.SELF, "data:"],
+        "connect-src": [CSP.SELF],
+        "frame-ancestors": [CSP.NONE],
+        "form-action": [CSP.SELF],
+        "base-uri": [CSP.SELF],
     }
 
 # Project URL and keys from the Supabase dashboard (Settings > API).

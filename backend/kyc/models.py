@@ -6,7 +6,11 @@ from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
+
+from . import supabase_client
 
 
 def validate_file_content(file_obj: UploadedFile):
@@ -76,7 +80,6 @@ class KYCApplication(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         SUBMITTED = "submitted", "Submitted"
-        UNDER_REVIEW = "under_review", "Under Review"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
         RESUBMISSION_REQUESTED = "resubmission_requested", "Resubmission Requested"
@@ -158,7 +161,7 @@ class KYCApplication(models.Model):
         """Apply a reviewer decision and record audit metadata."""
         # Note: callers must fetch this row via select_for_update() inside a
         # transaction so two concurrent reviews cannot both pass the check.
-        if self.status not in (self.Status.SUBMITTED, self.Status.UNDER_REVIEW):
+        if self.status != self.Status.SUBMITTED:
             raise ValidationError("Application is not in a reviewable state.")
         mapping = {
             self.Decision.APPROVE: self.Status.APPROVED,
@@ -216,6 +219,26 @@ class Document(models.Model):
             raise ValidationError("File exceeds the maximum allowed size.")
         if self.file:
             validate_file_content(self.file)
+
+
+@receiver(post_delete, sender=Document)
+def cleanup_document_files(sender, instance, **kwargs):
+    """Remove backing files whenever a Document row is deleted.
+
+    Django never deletes FileField files on model deletion, and the admin's
+    bulk-delete and cascade-delete paths bypass any custom ``Model.delete()``
+    override while still emitting ``post_delete`` signals. Centralising the
+    cleanup in a signal therefore covers every deletion path (API delete,
+    admin single/bulk delete, and application cascade) so identity documents
+    are never left orphaned on disk or in Supabase Storage.
+    """
+    if instance.file:
+        instance.file.delete(save=False)
+    if instance.storage_path:
+        # Best-effort mirror removal. The API delete path clears
+        # ``storage_path`` after its own strict deletion, so this only runs
+        # for admin/cascade deletions. Failures are logged by the client.
+        supabase_client.delete_document(instance.storage_path)
 
 
 class AuditLog(models.Model):

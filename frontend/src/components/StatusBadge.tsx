@@ -3,7 +3,6 @@ import type { ApplicationStatus } from "../types";
 const STYLES: Record<ApplicationStatus, string> = {
   draft: "bg-slate-200 text-slate-700",
   submitted: "bg-blue-100 text-blue-800",
-  under_review: "bg-amber-100 text-amber-800",
   approved: "bg-green-100 text-green-800",
   rejected: "bg-red-100 text-red-800",
   resubmission_requested: "bg-orange-100 text-orange-800",
@@ -12,7 +11,6 @@ const STYLES: Record<ApplicationStatus, string> = {
 const LABELS: Record<ApplicationStatus, string> = {
   draft: "Draft",
   submitted: "Submitted",
-  under_review: "Under Review",
   approved: "Approved",
   rejected: "Rejected",
   resubmission_requested: "Resubmission Requested",

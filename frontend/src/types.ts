@@ -12,12 +12,11 @@ export interface User {
 export type ApplicationStatus =
   | "draft"
   | "submitted"
-  | "under_review"
   | "approved"
   | "rejected"
   | "resubmission_requested";
 
-export interface Document {
+export interface KycDocument {
   id: string;
   doc_type: "id_proof" | "address_proof" | "selfie";
   file: string;
@@ -45,7 +44,7 @@ export interface KYCApplication {
   reviewer_email: string | null;
   review_notes: string;
   reviewed_at: string | null;
-  documents: Document[];
+  documents: KycDocument[];
   created_at: string;
   updated_at: string;
   submitted_at: string | null;

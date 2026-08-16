@@ -1,4 +1,4 @@
-import type { ApplicationPayload, AuditEntry, KYCApplication, Page, User } from "./types";
+import type { ApplicationPayload, AuditEntry, KYCApplication, KycDocument, Page, User } from "./types";
 
 const BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL.replace(/\/$/, "")}/api`
@@ -21,7 +21,7 @@ export function isAuthenticated() {
   return !!accessToken;
 }
 
-async function refreshAccess(): Promise<boolean> {
+async function doRefresh(): Promise<boolean> {
   // The refresh cookie travels with the request automatically.
   const res = await fetch(`${BASE}/auth/token/refresh/`, {
     method: "POST",
@@ -36,6 +36,18 @@ async function refreshAccess(): Promise<boolean> {
   const data = await res.json();
   accessToken = data.access;
   return true;
+}
+
+// Single-flight guard: the backend rotates and blacklists refresh tokens, so
+// two concurrent refresh calls with the same token would invalidate the
+// session. All callers share one in-flight refresh promise.
+let refreshPromise: Promise<boolean> | null = null;
+
+async function refreshAccess(): Promise<boolean> {
+  refreshPromise ??= doRefresh().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
 }
 
 export class ApiError extends Error {
@@ -119,7 +131,7 @@ export const uploadDocument = (id: string, docType: string, file: File) => {
   const form = new FormData();
   form.append("doc_type", docType);
   form.append("file", file);
-  return request<Document>(`/applications/${id}/documents/`, {
+  return request<KycDocument>(`/applications/${id}/documents/`, {
     method: "POST",
     body: form,
   });

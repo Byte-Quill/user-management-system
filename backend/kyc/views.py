@@ -157,7 +157,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
                 storage_path, file_obj.read(), file_obj.content_type or "application/octet-stream"
             )
             if not uploaded:
-                document.delete()  # removes the FileField copy from disk too
+                document.delete()  # post_delete signal removes the file from disk
                 logger.error(
                     "Document upload failed: Supabase mirror unavailable (application=%s)", application.id
                 )
@@ -209,10 +209,14 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
                     {"detail": "Document storage is temporarily unavailable. Please retry."},
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
+            # Mirror removed; clear the path so the post_delete cleanup signal
+            # does not attempt a redundant Supabase delete.
+            document.storage_path = ""
+            document.save(update_fields=["storage_path"])
 
         doc_type = document.doc_type
         original_filename = document.original_filename
-        document.delete()  # removes the FileField copy from disk too
+        document.delete()  # post_delete signal removes the file from disk
         log_action(
             application,
             request.user,
@@ -271,12 +275,7 @@ class ReviewQueueView(generics.ListAPIView):
 
     def get_queryset(self):
         return (
-            KYCApplication.objects.filter(
-                status__in=[
-                    KYCApplication.Status.SUBMITTED,
-                    KYCApplication.Status.UNDER_REVIEW,
-                ]
-            )
+            KYCApplication.objects.filter(status=KYCApplication.Status.SUBMITTED)
             .select_related("applicant")
             .prefetch_related("documents")
         )

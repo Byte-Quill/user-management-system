@@ -1,301 +1,221 @@
-# KYC-V3 — Application Verification System
+# KYC Application Verification System
 
-A full-stack KYC (Know Your Customer) / application verification system built with Django + React, using Supabase for Postgres, Storage, Realtime, and Edge Functions.
+A full-stack KYC (Know Your Customer) application and review system.
 
----
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            KYC-V3 SYSTEM ARCHITECTURE                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                         VERCEL (Full-Stack)                         │   │
-│  │  ┌──────────────┐         ┌─────────────────────────────────────┐   │   │
-│  │  │   FRONTEND   │ ◄─────► │           BACKEND                   │   │   │
-│  │  │  (Static)    │  /api/* │      (Serverless Function)          │   │   │
-│  │  │              │         │                                     │   │   │
-│  │  │  React 19    │         │  Django 5.2 + DRF                   │   │   │
-│  │  │  TypeScript  │         │  SimpleJWT Auth                     │   │   │
-│  │  │  Vite 6      │         │  WhiteNoise Static                  │   │   │
-│  │  │  Tailwind    │         │  Python 3.12 Runtime                │   │   │
-│  │  └──────────────┘         └─────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                    │                                       │
-│                    ┌───────────────┼───────────────┐                       │
-│                    │              SUPABASE         │                       │
-│                    │  ┌──────────┐ ┌─────────┐ ┌───┴───┐ ┌────────┐       │
-│                    │  │ Postgres │ │ Storage │ │Realtime│ │ Edge   │       │
-│                    │  │(Pooler)  │ │(Bucket) │ │Broadcast│ │Functions│       │
-│                    │  └──────────┘ └─────────┘ └───────┘ └────────┘       │
-│                    └─────────────────────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Alternative:** Backend on Render (container), Frontend on Vercel (static) — see Deployment section.
+- **Backend:** Django 6 + Django REST Framework + SimpleJWT (Python ≥ 3.12)
+- **Frontend:** React 19 + TypeScript + Vite + Tailwind CSS 4 (SPA)
+- **Database:** PostgreSQL (Supabase) via `DATABASE_URL`
+- **File storage:** Supabase Storage (private bucket, signed URLs) with local
+  `media/` fallback
+- **Cache / rate limiting:** Redis (required in production)
+- **Deployment:** Render (backend + Redis) and any static host or the included
+  nginx Docker image (frontend)
 
 ---
 
-## Tech Stack
+## Architecture
 
-| Layer              | Technology                                 | Purpose                                |
-| ------------------ | ------------------------------------------ | -------------------------------------- |
-| **Backend**        | Django 5.2, DRF 3.16                       | REST API, business logic               |
-| **Auth**           | SimpleJWT (access 1h, refresh 7d)          | Stateless JWT authentication           |
-| **Database**       | Supabase Postgres (Transaction Pooler)     | Primary data store                     |
-| **File Storage**   | Supabase Storage (`kyc-documents` bucket)  | Document uploads, CDN URLs             |
-| **Realtime**       | Supabase Realtime (`kyc-status` channel)   | Live status updates                    |
-| **Edge Functions** | Supabase Edge Functions (Deno)             | Embedding generation for vector search |
-| **Frontend**       | React 19, TypeScript, Vite 6, Tailwind CSS | SPA, deployed on Vercel                |
-| **Deployment**     | Vercel (full-stack) or Render + Vercel     | Serverless / container hosting         |
+```
+┌──────────────┐        ┌──────────────────────────────┐
+│   Frontend   │  /api  │           Backend            │
+│  React SPA   │ ─────► │  Django 6 + DRF + SimpleJWT  │
+│  (Vite)      │        │  gunicorn + WhiteNoise       │
+└──────────────┘        └──────┬──────────────┬────────┘
+                               │              │
+                        ┌──────▼─────┐  ┌─────▼──────────┐
+                        │ PostgreSQL │  │ Supabase       │
+                        │ (Supabase) │  │ Storage bucket │
+                        └────────────┘  └────────────────┘
+                               ▲
+                        ┌──────┴─────┐
+                        │   Redis    │  throttling, JWT blacklist,
+                        └────────────┘  signed-URL cache
+```
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
-KYC-V3/
+user-management-system/
 ├── backend/                    # Django project
-│   ├── config/                 # Settings, URLs, WSGI/ASGI
-│   │   ├── settings.py         # All configuration (env-driven)
-│   │   └── urls.py             # Root URL routing
-│   ├── kyc/                    # Main app
+│   ├── config/                 # settings, urls, wsgi/asgi
+│   ├── kyc/                    # main app
 │   │   ├── models.py           # User, KYCApplication, Document, AuditLog
-│   │   ├── views.py            # ViewSets: Applications, Documents, Review, Audit
-│   │   ├── serializers.py      # DRF serializers (Supabase URL for documents)
-│   │   ├── permissions.py      # IsApplicant, IsReviewer, IsAdmin, ownership checks
-│   │   ├── supabase_client.py  # Thin wrapper: storage, realtime, generic helpers
+│   │   ├── views.py            # applications, documents, review, audit
+│   │   ├── auth_views.py       # cookie-based JWT login/refresh/logout
+│   │   ├── serializers.py      # DRF serializers (signed URLs for documents)
+│   │   ├── permissions.py      # role + ownership permissions
+│   │   ├── supabase_client.py  # thin REST client for Supabase Storage
+│   │   ├── middleware.py       # request-ID middleware
+│   │   ├── throttles.py        # login/register rate limits
+│   │   ├── health.py           # /healthz and /readyz probes
 │   │   ├── management/commands/
-│   │   │   ├── seed_demo.py    # Creates demo users + sample data
-│   │   │   └── migrate_to_postgres.py  # SQLite → Postgres data migration
-│   │   └── migrations/         # 3 migrations (initial, embedding, storage_path)
-│   ├── .env                    # Local env (DATABASE_URL, Supabase keys)
-│   ├── .env.example            # Template
-│   ├── requirements.txt        # Python deps
-│   └── manage.py
+│   │   │   ├── seed_demo.py            # demo users + sample data
+│   │   │   └── migrate_to_postgres.py  # one-off SQLite → Postgres copy
+│   │   └── migrations/
+│   ├── Dockerfile              # python:3.13-slim image
+│   ├── entrypoint.sh
+│   └── requirements.txt
 ├── frontend/                   # React SPA
 │   ├── src/
-│   │   ├── api.ts              # Axios-like fetch wrapper, token refresh, VITE_API_URL
-│   │   ├── auth.tsx            # Auth context, login/register forms
-│   │   ├── types.ts            # TypeScript interfaces matching backend
-│   │   ├── components/         # Reusable UI (Field, Button, Modal, etc.)
-│   │   └── pages/              # Route pages (Dashboard, ApplicationForm, ReviewQueue, etc.)
-│   ├── vite.config.ts          # Dev proxy to localhost:8000
+│   │   ├── api.ts              # fetch wrapper, in-memory access token,
+│   │   │                       # single-flight cookie refresh
+│   │   ├── auth.tsx            # auth context
+│   │   ├── types.ts            # types matching the backend API
+│   │   ├── components/         # Layout, Field, Pagination, StatusBadge
+│   │   ├── hooks/              # usePaginatedList
+│   │   └── pages/              # Dashboard, ApplicationForm/Detail,
+│   │                           # ReviewQueue/Detail, Login, Register
+│   ├── Dockerfile              # nginx static image
+│   ├── nginx.conf
 │   └── package.json
-├── supabase/
-│   ├── functions/
-│   │   └── generate-embedding/ # Edge Function: OpenAI embeddings → pgvector
-│   └── README.md               # Supabase setup guide
-├── render.yaml                 # Render Blueprint (backend only, Option B)
-├── vercel.json                 # Vercel multi-service config (Option A)
-├── Dockerfile                  # Multi-stage (Node + Python) for container deploy
-└── README.md                   # This file
+├── supabase/README.md          # Supabase setup guide
+└── render.yaml                 # Render blueprint (backend + Redis)
 ```
 
 ---
 
-## Data Models & Relationships
+## Data model
 
 ```
-User (custom, email=USERNAME_FIELD)
-  ├── role: APPLICANT | REVIEWER | ADMIN
-  └── 1:N KYCApplication (applicant)
+User (custom, email = USERNAME_FIELD)
+  ├── role: applicant | reviewer | admin
+  └── 1:N KYCApplication (as applicant)
 
 KYCApplication
   ├── applicant → User
-  ├── status: DRAFT | SUBMITTED | UNDER_REVIEW | APPROVED | REJECTED | RESUBMISSION_REQUESTED
-  ├── personal_info (JSON): name, dob, nationality, id_number, id_type
-  ├── address_info (JSON): line1, line2, city, state, postal_code, country
-  ├── id_details (JSON): document_type, number, expiry, issuing_country
-  ├── reviewer → User (nullable)
-  ├── reviewed_at, review_notes
-  ├── embedding (vector, 1536-dim) — for semantic search
+  ├── status: draft | submitted | approved | rejected | resubmission_requested
+  ├── personal + address + ID fields (typed columns)
+  ├── reviewer → User (nullable), review_notes, reviewed_at
   ├── 1:N Document
   └── 1:N AuditLog
 
 Document
   ├── application → KYCApplication
-  ├── doc_type: ID_PROOF | ADDRESS_PROOF | SELFIE
-  ├── file (FileField) — local fallback
-  ├── storage_path (CharField) — Supabase Storage path when mirrored
-  ├── original_filename
-  └── uploaded_at
+  ├── doc_type: id_proof | address_proof | selfie
+  ├── file (FileField) — local storage
+  ├── storage_path — Supabase Storage path when mirrored
+  └── original_filename, uploaded_at
 
 AuditLog
-  ├── application → KYCApplication
-  ├── actor → User
-  ├── action: CREATED | SUBMITTED | DOCUMENT_UPLOADED | REVIEWED | STATUS_CHANGED | ...
-  ├── detail (text)
-  └── created_at
+  ├── application → KYCApplication, actor → User
+  ├── action: created | updated | submitted | document_uploaded |
+  │           document_removed | approved | rejected | resubmission_requested
+  └── detail, created_at
 ```
 
 ---
 
-## Authentication Flow
+## Application lifecycle
 
 ```
-┌─────────┐     POST /api/auth/register/      ┌─────────┐
-│ Frontend │ ─────────────────────────────────► │ Backend │
-└─────────┘   {email, password, name}          └────┬────┘
-                                                     │
-                                                     ▼
-                                            Create User (role=APPLICANT)
-                                            Return 201 + user data
-                                                     │
-┌─────────┐     POST /api/auth/token/        ◄───────┘
-│ Frontend │ ─────────────────────────────────►
-└─────────┘   {email, password}              │
-                │                            ▼
-                │                    Validate credentials
-                │                    Return {access} in body
-                │                    Set refresh_token HttpOnly cookie
-                │                            │
-                ▼                            │
-         Keep access token in memory ONLY
-         (never localStorage)
-         Set Authorization: Bearer <access>
-                │
-                ▼
-    ┌─────────────────────────────────────────────────────┐
-    │           Subsequent Requests                        │
-    │  GET /api/applications/                              │
-    │  Authorization: Bearer <access>   (credentials: include)  │
-    │                                                      │
-    │  If 401 (expired):                                   │
-    │    POST /api/auth/token/refresh/   (cookie sent automatically) │
-    │    → new access token, retry original request        │
-    └─────────────────────────────────────────────────────┘
+draft ──submit──► submitted ──approve──► approved
+  ▲                   │
+  │                   ├──reject──► rejected
+  │                   │
+  └──edit & resubmit──┴──request_resubmission──► resubmission_requested
 ```
 
-**Token security model:**
-- **Access token** (1 h): kept in memory in the SPA. XSS cannot exfiltrate it after page unload, and it expires quickly.
-- **Refresh token** (7 d): stored server-side in an `HttpOnly; Secure; SameSite` cookie — JavaScript cannot read it, so XSS cannot steal it.
-- **Rotation**: every refresh rotates the token and blacklists the previous one (`ROTATE_REFRESH_TOKENS`, `BLACKLIST_AFTER_ROTATION`).
-- **CSRF**: the refresh endpoint validates the `Origin` header against the configured CORS origins.
-- **Logout**: `POST /api/auth/logout/` blacklists the refresh token and clears the cookie.
-
-**Token lifetimes:** Access = 1 hour, Refresh = 7 days (configurable in `SIMPLE_JWT`).
+- Submitting requires the three document types to be present.
+- Only `submitted` applications can be reviewed; reviews are applied inside a
+  `select_for_update()` transaction so concurrent reviews cannot race.
+- Every state change and document operation writes an `AuditLog` row.
 
 ---
 
-## Application Lifecycle (State Machine)
+## Authentication
 
-```
-DRAFT
-  │
-  ├─► User fills form (personal, address, ID details)
-  │
-  ├─► Upload documents (ID_PROOF, ADDRESS_PROOF, SELFIE)
-  │     → POST /api/applications/{id}/documents/
-  │     → File saved locally + mirrored to Supabase Storage
-  │     → Document.storage_path set
-  │
-  ▼
-SUBMITTED          POST /api/applications/{id}/submit/
-  │                → Validates required docs present
-  │                → Creates AuditLog(SUBMITTED)
-  │                → Broadcasts realtime status change
-  │
-  ▼
-UNDER_REVIEW       Reviewer claims from queue
-  │
-  ├─► APPROVED           POST /api/applications/{id}/review/
-  │     {decision: "approve", notes: "..."}
-  │     → status = APPROVED, reviewer = current user
-  │     → AuditLog(REVIEWED), Broadcast
-  │
-  ├─► REJECTED           {decision: "reject", notes: "..."}
-  │     → status = REJECTED
-  │     → AuditLog(REVIEWED), Broadcast
-  │
-  └─► RESUBMISSION_REQUESTED  {decision: "resubmit", notes: "Missing ID proof"}
-        → status = RESUBMISSION_REQUESTED
-        → Applicant sees required changes, can edit & re-submit
-```
+- **Access token** (short-lived JWT): returned in the response body, kept in
+  memory in the SPA only — never in `localStorage`.
+- **Refresh token** (7 days): set as an `HttpOnly; Secure; SameSite` cookie.
+  JavaScript cannot read it, so XSS cannot steal it.
+- Refresh **rotates** the token and blacklists the old one
+  (`ROTATE_REFRESH_TOKENS` + `BLACKLIST_AFTER_ROTATION`); the frontend
+  single-flights concurrent refreshes so rotation never invalidates the
+  session.
+- Cookie-authenticated endpoints validate the `Origin` header against the
+  configured CORS origins as CSRF protection.
+- Login and registration are rate-limited (shared via Redis in production).
 
 ---
 
-## API Endpoints Summary
+## API endpoints
 
-| Method | Endpoint                                     | Auth | Role                                | Description              |
-| ------ | -------------------------------------------- | ---- | ----------------------------------- | ------------------------ |
-| POST   | `/api/auth/register/`                        | ❌   | —                                   | Register applicant       |
-| POST   | `/api/auth/token/`                           | ❌   | —                                   | Login → access token + refresh cookie |
-| POST   | `/api/auth/token/refresh/`                   | ❌   | —                                   | Rotate refresh cookie → new access token |
-| POST   | `/api/auth/logout/`                          | ❌   | —                                   | Blacklist refresh token, clear cookie |
-| GET    | `/api/auth/me/`                              | ✅   | Any                                 | Current user profile     |
-| GET    | `/healthz`                                   | ❌   | —                                   | Liveness probe           |
-| GET    | `/readyz`                                    | ❌   | —                                   | Readiness probe (DB + storage) |
-| GET    | `/api/applications/`                         | ✅   | Applicant: own, Reviewer/Admin: all | List applications        |
-| POST   | `/api/applications/`                         | ✅   | Applicant                           | Create draft application |
-| GET    | `/api/applications/{id}/`                    | ✅   | Owner/Reviewer/Admin                | Application detail       |
-| PATCH  | `/api/applications/{id}/`                    | ✅   | Applicant (DRAFT only)              | Update draft             |
-| POST   | `/api/applications/{id}/submit/`             | ✅   | Applicant                           | Submit for review        |
-| POST   | `/api/applications/{id}/documents/`          | ✅   | Applicant                           | Upload document          |
-| DELETE | `/api/applications/{id}/documents/{doc_id}/` | ✅   | Applicant                           | Delete document          |
-| POST   | `/api/applications/{id}/review/`             | ✅   | Reviewer/Admin                      | Approve/Reject/Resubmit  |
-| GET    | `/api/applications/{id}/audit/`              | ✅   | Owner/Reviewer/Admin                | Audit trail              |
-| GET    | `/api/review/queue/`                         | ✅   | Reviewer/Admin                      | Pending review queue     |
+| Method | Endpoint                                     | Auth | Role                          | Description                          |
+| ------ | -------------------------------------------- | ---- | ----------------------------- | ------------------------------------ |
+| POST   | `/api/auth/register/`                        | ❌   | —                             | Register applicant                   |
+| POST   | `/api/auth/token/`                           | ❌   | —                             | Login → access token + refresh cookie |
+| POST   | `/api/auth/token/refresh/`                   | ❌   | —                             | Rotate refresh cookie → new access   |
+| POST   | `/api/auth/logout/`                          | ❌   | —                             | Blacklist refresh token, clear cookie |
+| GET    | `/api/auth/me/`                              | ✅   | Any                           | Current user profile                 |
+| GET    | `/healthz`                                   | ❌   | —                             | Liveness probe                       |
+| GET    | `/readyz`                                    | ❌   | —                             | Readiness probe (DB + storage)       |
+| GET    | `/api/applications/`                         | ✅   | Applicant: own; Reviewer/Admin: all | List applications (paginated)  |
+| POST   | `/api/applications/`                         | ✅   | Applicant                     | Create draft application             |
+| GET    | `/api/applications/{id}/`                    | ✅   | Owner / Reviewer / Admin      | Application detail                   |
+| PATCH  | `/api/applications/{id}/`                    | ✅   | Applicant (draft only)        | Update draft                         |
+| POST   | `/api/applications/{id}/submit/`             | ✅   | Applicant                     | Submit for review                    |
+| POST   | `/api/applications/{id}/documents/`          | ✅   | Applicant                     | Upload document                      |
+| DELETE | `/api/applications/{id}/documents/{doc_id}/` | ✅   | Applicant                     | Delete document (file removed too)   |
+| POST   | `/api/applications/{id}/review/`             | ✅   | Reviewer / Admin              | approve / reject / request_resubmission |
+| GET    | `/api/applications/{id}/audit/`              | ✅   | Owner / Reviewer / Admin      | Audit trail (paginated)              |
+| GET    | `/api/review-queue/`                         | ✅   | Reviewer / Admin              | Pending review queue                 |
 
----
-
-## Frontend Pages & Routes
-
-| Route               | Component               | Purpose                                      |
-| ------------------- | ----------------------- | -------------------------------------------- |
-| `/`                 | `DashboardPage`         | Role-based redirect                          |
-| `/login`            | `LoginPage`             | Email/password login                         |
-| `/register`         | `RegisterPage`          | New applicant registration                   |
-| `/applications`     | `ApplicationListPage`   | My applications (applicant) / All (reviewer) |
-| `/applications/new` | `ApplicationFormPage`   | Multi-step form wizard                       |
-| `/applications/:id` | `ApplicationDetailPage` | View + upload docs + submit                  |
-| `/review`           | `ReviewQueuePage`       | Reviewer queue with filters                  |
-| `/review/:id`       | `ReviewDetailPage`      | Review decision modal                        |
-| `/profile`          | `ProfilePage`           | User info, logout                            |
+Document uploads are validated for extension (jpg/jpeg/png/pdf), declared
+content type, magic-byte content, and size (≤ 5 MB).
 
 ---
 
-## Supabase Integration Details
+## Frontend routes
 
-### 1. Database (Postgres via Transaction Pooler)
-
-- **URI format:** `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres`
-- Set as `DATABASE_URL` in Render env vars
-- Migrations run on deploy via `startCommand` in `render.yaml`
-
-### 2. Storage (Document Uploads)
-
-- Bucket: `kyc-documents` (create in Supabase Dashboard → Storage)
-- **Public bucket** → `get_public_url()` returns CDN URL
-- **Private bucket** → use `create_signed_url(path, 3600)` for 1-hour links
-- Backend mirrors every upload to Supabase; `Document.storage_path` stores the path
-- `DocumentSerializer.get_file()` returns Supabase URL when available, else local
-
-### 3. Realtime (Live Status Updates)
-
-- Channel: `kyc-status`
-- Event: `status_changed` → `{application_id, status, detail}`
-- Frontend can subscribe (not yet implemented) for live dashboard updates
-- `supabase_client.broadcast_status_change()` called on every status transition
-
-### 4. Edge Function (Embeddings)
-
-- Path: `supabase/functions/generate-embedding/`
-- Trigger: HTTP POST with `{application_id, text}`
-- Calls OpenAI `text-embedding-3-small` → 1536-dim vector
-- Upserts into `kyc_application.embedding` (pgvector)
-- Enable `vector` extension in Supabase SQL editor: `CREATE EXTENSION vector;`
+| Route               | Page                    | Purpose                          |
+| ------------------- | ----------------------- | -------------------------------- |
+| `/`                 | `DashboardPage`         | Role-based overview              |
+| `/login`            | `LoginPage`             | Email/password login             |
+| `/register`         | `RegisterPage`          | New applicant registration       |
+| `/applications/new` | `ApplicationFormPage`   | Create/edit application          |
+| `/applications/:id` | `ApplicationDetailPage` | View, upload docs, submit        |
+| `/review`           | `ReviewQueuePage`       | Reviewer queue                   |
+| `/review/:id`       | `ReviewDetailPage`      | Review decision                  |
 
 ---
 
-## Local Development
+## Environment variables
+
+### Backend
+
+| Variable                      | Required | Description                                    |
+| ----------------------------- | -------- | ---------------------------------------------- |
+| `DJANGO_SECRET_KEY`           | ✅       | 50+ char random string                         |
+| `DJANGO_DEBUG`                | ✅       | `true` / `false`                               |
+| `DJANGO_ALLOWED_HOSTS`        | ✅       | Comma-separated hosts                          |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | ✅       | Comma-separated HTTPS origins                  |
+| `DATABASE_URL`                | ✅       | Postgres connection string (Supabase)          |
+| `REDIS_URL`                   | ✅ (prod)| Required when `DJANGO_DEBUG=false`             |
+| `SUPABASE_URL`                | ❌       | `https://<ref>.supabase.co`                    |
+| `SUPABASE_SERVICE_ROLE_KEY`   | ❌       | Service role key (storage mirroring)           |
+| `SUPABASE_STORAGE_BUCKET`     | ❌       | Bucket name (default `kyc-documents`)          |
+| `CORS_ALLOWED_ORIGINS`        | ✅       | Frontend URL(s), comma-separated               |
+| `CUSTOM_DOMAIN`               | ❌       | Optional extra CORS origin                     |
+
+When Supabase is not configured, documents are stored locally under
+`media/documents/` and served by Django (debug) or your web server.
+
+### Frontend
+
+| Variable       | Required | Description                          |
+| -------------- | -------- | ------------------------------------ |
+| `VITE_API_URL` | ✅       | Backend base URL, e.g. `https://kyc-backend.onrender.com` |
+
+---
+
+## Local development
 
 ### Prerequisites
 
-- Python 3.11+, Node 18+, Supabase CLI (optional)
+- Python ≥ 3.12, Node ≥ 20, Postgres (or a Supabase project), Redis (optional
+  in debug mode)
 
 ### Backend
 
@@ -303,10 +223,9 @@ UNDER_REVIEW       Reviewer claims from queue
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env: add DATABASE_URL (Supabase pooler), SUPABASE_* keys
+# create backend/.env with DATABASE_URL etc. (see supabase/README.md)
 python manage.py migrate
-python manage.py seed_demo          # Optional: demo users + data
+python manage.py seed_demo          # optional demo users + data
 python manage.py runserver          # http://127.0.0.1:8000
 ```
 
@@ -316,10 +235,10 @@ python manage.py runserver          # http://127.0.0.1:8000
 cd frontend
 npm install
 npm run dev                         # http://localhost:5173
-# Proxies /api/* and /media/* to localhost:8000 via vite.config.ts
+# Vite proxies /api and /media to localhost:8000
 ```
 
-### Demo Accounts (after `seed_demo`)
+### Demo accounts (after `seed_demo`)
 
 | Role      | Email              | Password   |
 | --------- | ------------------ | ---------- |
@@ -327,186 +246,61 @@ npm run dev                         # http://localhost:5173
 | Reviewer  | reviewer@kyc.local | Review@123 |
 | Applicant | user@kyc.local     | User@123   |
 
----
-
-## Deployment
-
-### Option A: Vercel (Full-Stack, Recommended)
-
-Deploy both frontend and backend on Vercel using `vercel.json`:
-
-1. **Push repo to GitHub**
-2. **Vercel → Import Project** → select repo
-3. **Root Directory**: Leave as root (`.`)
-4. **Framework**: Auto-detected (Vite + Django)
-5. **Environment Variables** (set in Vercel dashboard):
-
-   ```
-   # Backend
-   DJANGO_SECRET_KEY=<50+ char random string>
-   DJANGO_DEBUG=false
-   DJANGO_ALLOWED_HOSTS=.vercel.app
-   DJANGO_CSRF_TRUSTED_ORIGINS=https://your-app.vercel.app
-   DATABASE_URL=postgresql://postgres.<ref>:<pwd>@aws-0-<region>.pooler.supabase.com:6543/postgres
-   SUPABASE_URL=https://<ref>.supabase.co
-   SUPABASE_ANON_KEY=<anon-key>
-   SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-   SUPABASE_STORAGE_BUCKET=kyc-documents
-   CORS_ALLOWED_ORIGINS=https://your-app.vercel.app
-
-   # Frontend
-   VITE_API_URL=https://your-app.vercel.app
-   ```
-
-6. Deploy → URL: `https://your-app.vercel.app`
-
-**How it works:**
-
-- `vercel.json` defines two services: `frontend` (Vite) and `backend` (Django)
-- Rewrites route `/api/*` to backend, everything else to frontend
-- Backend runs as Vercel Serverless Function (Python)
-- Frontend builds to static files
-
-### Option B: Render (Backend) + Vercel (Frontend)
-
-**Backend → Render:**
-
-1. Render Dashboard → **New → Blueprint** → select repo
-2. Blueprint reads `render.yaml` (backend service only)
-3. **Environment Variables** (set in Render dashboard):
-   ```
-   DATABASE_URL=postgresql://postgres.<ref>:<pwd>@aws-0-<region>.pooler.supabase.com:6543/postgres
-   SUPABASE_URL=https://<ref>.supabase.co
-   SUPABASE_ANON_KEY=<anon-key>
-   SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-   SUPABASE_STORAGE_BUCKET=kyc-documents
-   CORS_ALLOWED_ORIGINS=https://your-app.vercel.app
-   DJANGO_CSRF_TRUSTED_ORIGINS=https://your-app.vercel.app
-   DJANGO_SECRET_KEY=<auto-generated>
-   DJANGO_DEBUG=false
-   DJANGO_ALLOWED_HOSTS=.onrender.com
-   ```
-4. Deploy → URL: `https://kyc-backend.onrender.com`
-
-**Frontend → Vercel:**
-
-1. Vercel → **Import Project** → same repo
-2. **Root Directory**: `frontend`
-3. **Framework**: Vite (auto)
-4. **Build Command**: `npm run build`
-5. **Output Directory**: `dist`
-6. **Environment Variable**:
-   ```
-   VITE_API_URL=https://kyc-backend.onrender.com
-   ```
-7. Deploy → URL: `https://your-app.vercel.app`
-
-### Supabase Setup Checklist
-
-- [ ] Create project → copy URL, anon key, service role key
-- [ ] **Database** → enable `vector` extension (SQL: `CREATE EXTENSION vector;`)
-- [ ] **Storage** → create bucket `kyc-documents` (public or private)
-- [ ] **Edge Functions** → deploy `generate-embedding` (set `OPENAI_API_KEY` in function env)
-- [ ] **Realtime** → enable for `kyc-status` channel (default on)
-
----
-
-## Key Implementation Details
-
-### Permissions (`kyc/permissions.py`)
-
-- `IsApplicant` — user.role == APPLICANT
-- `IsReviewer` — user.role in [REVIEWER, ADMIN]
-- `IsAdmin` — user.role == ADMIN
-- `IsOwnerOrReviewer` — applicant owns object OR reviewer/admin
-- Applied per-viewset via `permission_classes`
-
-### Document Upload Flow (`views.py:upload_document`)
-
-1. Validate file type (jpg, jpeg, png, pdf) & size (≤5MB)
-2. Save to local `media/documents/<app_id>/<uuid>.<ext>`
-3. If Supabase configured:
-   - Read file bytes → `supabase_client.upload_document(path, bytes, content_type)`
-   - On success: `document.storage_path = path` → save
-4. Return `DocumentSerializer` data (includes Supabase URL via `get_file()`)
-
-### Audit Logging (`views.py:log_action`)
-
-- Called on every state change: create, submit, upload, review, status change
-- Records: application, actor, action enum, detail text, timestamp
-- Exposed via `/api/applications/{id}/audit/`
-
-### CORS & CSRF (`settings.py`)
-
-- `CORS_ALLOWED_ORIGINS` from env (comma-separated)
-- `CSRF_TRUSTED_ORIGINS` from env
-- Both support Vercel domain + local dev
-
----
-
-## Environment Variables Reference
-
-### Backend (`.env` / Render)
-
-| Variable                      | Required | Description                         |
-| ----------------------------- | -------- | ----------------------------------- |
-| `DJANGO_SECRET_KEY`           | ✅       | 50+ char random string              |
-| `DJANGO_DEBUG`                | ✅       | `true`/`false`                      |
-| `DJANGO_ALLOWED_HOSTS`        | ✅       | Comma-separated hosts               |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | ✅       | Comma-separated origins (HTTPS)     |
-| `DATABASE_URL`                | ✅       | Supabase Postgres pooler URI        |
-| `SUPABASE_URL`                | ✅       | `https://<ref>.supabase.co`         |
-| `SUPABASE_ANON_KEY`           | ✅       | Public anon key                     |
-| `SUPABASE_SERVICE_ROLE_KEY`   | ✅       | Secret service role key             |
-| `SUPABASE_STORAGE_BUCKET`     | ✅       | Bucket name (e.g., `kyc-documents`) |
-| `CORS_ALLOWED_ORIGINS`        | ✅       | Frontend URL(s) for CORS            |
-| `CUSTOM_DOMAIN`               | ❌       | Optional custom domain for CORS     |
-
-### Frontend (Vercel)
-
-| Variable       | Required | Description                                                 |
-| -------------- | -------- | ----------------------------------------------------------- |
-| `VITE_API_URL` | ✅       | Backend base URL (e.g., `https://kyc-backend.onrender.com`) |
-
----
-
-## Common Commands
+### Tests
 
 ```bash
-# Backend
-cd backend && source .venv/bin/activate
-python manage.py migrate              # Apply migrations
-python manage.py makemigrations kyc   # Create new migration
-python manage.py seed_demo            # Seed demo data
-python manage.py migrate_to_postgres  # Migrate SQLite → Postgres
-python manage.py test kyc.tests       # Run tests (8 tests)
-python manage.py createsuperuser      # Create admin user
-
-# Frontend
-cd frontend
-npm run dev                           # Dev server
-npm run build                         # Production build
-npm run preview                       # Preview build locally
-
-# Supabase CLI (optional)
-supabase login
-supabase link --project-ref <ref>
-supabase db push                      # Push migrations
-supabase functions deploy generate-embedding
+cd backend
+python manage.py test kyc           # 18 tests: auth, flow, uploads, permissions
 ```
 
 ---
 
-## Troubleshooting
+## Deployment
 
-| Issue                                    | Cause                      | Fix                                                                                         |
-| ---------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------- |
-| `ENOTFOUND` / `ENOIDENTIFIER` on migrate | Wrong pooler URI           | Use **Transaction Pooler** (port 6543) with `postgres.<ref>` user                           |
-| CORS error on Vercel                     | Missing origin in backend  | Add `https://your-app.vercel.app` to `CORS_ALLOWED_ORIGINS` & `DJANGO_CSRF_TRUSTED_ORIGINS` |
-| 401 after refresh                        | Refresh token expired (7d) | Re-login; check `SIMPLE_JWT.REFRESH_TOKEN_LIFETIME`                                         |
-| Documents not showing                    | Supabase bucket private    | Use signed URLs or make bucket public                                                       |
-| Realtime not working                     | Channel not subscribed     | Frontend needs to implement `supabase.channel('kyc-status').on('broadcast', ...)`           |
-| Render deploy fails                      | `DATABASE_URL` not set     | Add all env vars in Render dashboard before deploy                                          |
+### Render (backend + Redis)
+
+`render.yaml` defines a Python web service (`kyc-backend`) and a Redis
+service (`kyc-redis`):
+
+1. Render → **New → Blueprint** → select this repo.
+2. Set the `sync: false` env vars in the dashboard: `DATABASE_URL`,
+   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORS_ALLOWED_ORIGINS`,
+   `DJANGO_CSRF_TRUSTED_ORIGINS`.
+3. Deploy. The start command runs `migrate`, `collectstatic`, then gunicorn.
+
+The backend can also run from `backend/Dockerfile`
+(`python:3.13-slim`, non-root user, `entrypoint.sh` runs migrations).
+
+### Frontend
+
+Build the SPA and serve it statically:
+
+```bash
+cd frontend
+VITE_API_URL=https://kyc-backend.onrender.com npm run build
+```
+
+`frontend/Dockerfile` builds the app and serves `dist/` with nginx
+(SPA fallback, hashed-asset caching, gzip, security headers,
+`client_max_body_size 6m`).
+
+### Supabase
+
+See `supabase/README.md`: create the project, copy the connection string and
+service role key, and create a **private** `kyc-documents` storage bucket.
+Documents are served through time-limited signed URLs (cached server-side).
+
+---
+
+## Security notes
+
+- Refresh tokens live in HttpOnly cookies; access tokens in memory only.
+- Cookie-authenticated endpoints check the `Origin` header (CSRF mitigation).
+- Django 6's built-in CSP middleware is enabled via `SECURE_CSP`; plus
+  `X-Frame-Options`, `X-Content-Type-Options`, HSTS, and secure cookies.
+- Uploads are validated by extension, MIME type, magic bytes, and size.
+- Deleting a `Document` also deletes the file from disk/Supabase (PII).
+- Login/register endpoints are throttled via Redis-backed counters.
 
 ---
 

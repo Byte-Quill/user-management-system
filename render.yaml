@@ -7,8 +7,9 @@ services:
     buildCommand: pip install -r backend/requirements.txt
     startCommand: cd backend && python manage.py migrate && python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class sync --max-requests 1000 --max-requests-jitter 100
     envVars:
+      # Django 6.0 requires Python >= 3.12; keep in sync with backend/Dockerfile.
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: 3.13.0
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings
       - key: DJANGO_SECRET_KEY
@@ -19,6 +20,12 @@ services:
         value: .onrender.com
       - key: DATABASE_URL
         sync: false
+      # Required when DJANGO_DEBUG=false (shared throttling + JWT blacklist).
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: kyc-redis
+          property: connectionString
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
@@ -29,3 +36,10 @@ services:
         sync: false
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
         sync: false
+
+  # Redis for shared rate-limit counters and the JWT token blacklist.
+  # The backend refuses to start with DJANGO_DEBUG=false unless REDIS_URL is set.
+  - type: redis
+    name: kyc-redis
+    plan: free
+    ipAllowList: []

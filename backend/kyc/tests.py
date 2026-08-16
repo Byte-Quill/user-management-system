@@ -1,10 +1,13 @@
+import os
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Document
+from .models import AuditLog, Document, KYCApplication
 
 User = get_user_model()
 
@@ -288,12 +291,18 @@ class ApplicationFlowTests(APITestCase):
         app_id = self.create_app()
         res = self.upload_doc(app_id)
         doc_id = res.data["id"]
+        # Capture the on-disk path before deletion so we can assert cleanup.
+        file_path = Document.objects.get(pk=doc_id).file.path
+        self.assertTrue(os.path.exists(file_path))
         res = self.client.delete(f"/api/applications/{app_id}/documents/{doc_id}/")
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(
             Document.objects.filter(pk=doc_id).exists(),
             False,
         )
+        # Django does not delete FileField files on model deletion; the
+        # post_delete signal must remove the PII file from disk.
+        self.assertFalse(os.path.exists(file_path))
         res = self.client.get(f"/api/applications/{app_id}/audit/")
         actions = [entry["action"] for entry in res.data["results"]]
         self.assertEqual(actions[0], "document_removed")
@@ -328,3 +337,147 @@ class ApplicationFlowTests(APITestCase):
             format="multipart",
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# The admin templates reference static assets. The production storage backend
+# (CompressedManifestStaticFilesStorage) needs a collectstatic manifest, which
+# the test runner does not build (and DEBUG is forced off, so the manifest
+# lookup is not skipped). Use the plain storage so admin pages render.
+@override_settings(
+    STORAGES={
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+)
+class AdminTests(TestCase):
+    """Regression tests for the Django admin customizations."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            email="boss@kyc.local", username="boss", password="Passw0rd!"
+        )
+        self.client.force_login(self.admin)
+
+    def test_user_add_form_includes_email(self):
+        # USERNAME_FIELD is email, so the stock add form (username only)
+        # would create users that can never log in.
+        res = self.client.post(
+            "/admin/kyc/user/add/",
+            {
+                "username": "newuser",
+                "usable_password": "true",
+                "password1": "Str0ngPass!2026",
+                "password2": "Str0ngPass!2026",
+                "email": "newuser@kyc.local",
+            },
+        )
+        self.assertEqual(res.status_code, 302)  # success redirects to change page
+        user = User.objects.get(email="newuser@kyc.local")
+        self.assertEqual(user.username, "newuser")
+        self.assertTrue(user.check_password("Str0ngPass!2026"))
+
+    def test_admin_status_change_is_audited(self):
+        applicant = User.objects.create_user(
+            email="user@kyc.local", username="user", password="Passw0rd!"
+        )
+        app = KYCApplication.objects.create(
+            applicant=applicant,
+            full_name="Jane Doe",
+            date_of_birth="1992-05-20",
+            nationality="Indian",
+            phone="+91-9000000000",
+            address_line1="1 Main Street",
+            city="Pune",
+            state="Maharashtra",
+            postal_code="411001",
+            country="India",
+            id_type=KYCApplication.IDType.PASSPORT,
+            id_number="B7654321",
+        )
+        res = self.client.post(
+            f"/admin/kyc/kycapplication/{app.pk}/change/",
+            {
+                "applicant": applicant.pk,
+                "status": KYCApplication.Status.APPROVED,
+                "full_name": "Jane Doe",
+                "date_of_birth": "1992-05-20",
+                "nationality": "Indian",
+                "phone": "+91-9000000000",
+                "address_line1": "1 Main Street",
+                "address_line2": "",
+                "city": "Pune",
+                "state": "Maharashtra",
+                "postal_code": "411001",
+                "country": "India",
+                "id_type": KYCApplication.IDType.PASSPORT,
+                "id_number": "B7654321",
+                "review_notes": "",
+                "documents-TOTAL_FORMS": "0",
+                "documents-INITIAL_FORMS": "0",
+                "documents-MIN_NUM_FORMS": "0",
+                "documents-MAX_NUM_FORMS": "1000",
+            },
+        )
+        self.assertEqual(res.status_code, 302)
+        app.refresh_from_db()
+        self.assertEqual(app.status, KYCApplication.Status.APPROVED)
+        entry = AuditLog.objects.filter(application=app).first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.action, AuditLog.Action.UPDATED)
+        self.assertEqual(entry.actor, self.admin)
+        self.assertIn("draft -> approved", entry.detail)
+
+    def test_auditlog_is_view_only(self):
+        applicant = User.objects.create_user(
+            email="user2@kyc.local", username="user2", password="Passw0rd!"
+        )
+        app = KYCApplication.objects.create(
+            applicant=applicant,
+            full_name="X",
+            date_of_birth="1990-01-01",
+            nationality="Indian",
+            phone="+91",
+            address_line1="a",
+            city="c",
+            state="s",
+            postal_code="1",
+            country="India",
+            id_type=KYCApplication.IDType.PASSPORT,
+            id_number="Z1",
+        )
+        entry = AuditLog.objects.create(
+            application=app, actor=applicant, action=AuditLog.Action.CREATED
+        )
+        # No add form, and the detail page is view-only (no change permission).
+        self.assertEqual(self.client.get("/admin/kyc/auditlog/add/").status_code, 403)
+        res = self.client.get(f"/admin/kyc/auditlog/{entry.pk}/change/")
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, "View audit log")
+        self.assertEqual(self.client.get(f"/admin/kyc/auditlog/{entry.pk}/delete/").status_code, 403)
+
+    def test_reviewer_dropdown_excludes_applicants(self):
+        applicant = User.objects.create_user(
+            email="user3@kyc.local", username="user3", password="Passw0rd!"
+        )
+        reviewer = User.objects.create_user(
+            email="rev@kyc.local", username="rev", password="Passw0rd!", role=User.Role.REVIEWER
+        )
+        app = KYCApplication.objects.create(
+            applicant=applicant,
+            full_name="X",
+            date_of_birth="1990-01-01",
+            nationality="Indian",
+            phone="+91",
+            address_line1="a",
+            city="c",
+            state="s",
+            postal_code="1",
+            country="India",
+            id_type=KYCApplication.IDType.PASSPORT,
+            id_number="Z2",
+        )
+        res = self.client.get(f"/admin/kyc/kycapplication/{app.pk}/change/")
+        self.assertEqual(res.status_code, 200)
+        options = set(res.context["adminform"].form.fields["reviewer"].queryset)
+        self.assertIn(reviewer, options)
+        self.assertNotIn(applicant, options)

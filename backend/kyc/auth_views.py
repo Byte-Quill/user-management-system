@@ -10,6 +10,7 @@ CSRF mitigation: endpoints that authenticate via the cookie validate the
 an attacker's page sends the cookie but fails the Origin check.
 """
 import logging
+import re
 
 from django.conf import settings
 from rest_framework import status
@@ -56,8 +57,6 @@ def origin_allowed(request) -> bool:
     if origin in allowed:
         return True
     for pattern in getattr(settings, "CORS_ALLOWED_ORIGIN_REGEXES", []):
-        import re
-
         if re.match(pattern, origin):
             return True
     return False
