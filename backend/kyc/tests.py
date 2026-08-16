@@ -1,13 +1,15 @@
 import os
+import threading
 import time
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings, skipUnlessDBFeature
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.request import Request
+from rest_framework.test import APIClient, APIRequestFactory, APITestCase
 
 from .access import LoginIPThrottle
 from .models import AuditLog, Document, KYCApplication
@@ -192,7 +194,16 @@ class AuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         self.assertNotIn("refresh_token", res.cookies)
-
+    def test_throttle_ident_uses_last_xff_entry(self):
+        """NUM_PROXIES=1: the trusted proxy appends the real client IP last,
+        so a spoofed leading entry must not change the throttle identity."""
+        factory = APIRequestFactory()
+        throttle = LoginIPThrottle()
+        spoofed = throttle.get_ident(
+            Request(factory.get("/", HTTP_X_FORWARDED_FOR="1.2.3.4, 10.0.0.1"))
+        )
+        clean = throttle.get_ident(Request(factory.get("/", REMOTE_ADDR="10.0.0.1")))
+        self.assertEqual(spoofed, clean)
     def test_refresh_allows_same_origin_on_non_standard_port(self):
         """Browsers include non-standard ports in Origin. With the port
         preserved in the Host header (nginx $http_host), the same-origin
@@ -516,6 +527,55 @@ class ApplicationFlowTests(APITestCase):
         ):
             res = self.client.get(f"/api/documents/{doc_id}/download/?token={token}")
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@FAST_PASSWORD_HASHERS
+@skipUnlessDBFeature("has_select_for_update")
+class ConcurrencyTests(TransactionTestCase):
+    """Race conditions on state transitions (needs real row locks: Postgres)."""
+
+    def setUp(self):
+        cache.clear()
+        self.applicant = make_user("user@kyc.local", User.Role.APPLICANT)
+
+    def test_concurrent_submits_transition_once(self):
+        """Two parallel submits must not both pass the draft-status check."""
+        client = APIClient()
+        res = client.post(
+            "/api/auth/token/", {"email": "user@kyc.local", "password": "Passw0rd!"}
+        )
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+        res = client.post("/api/applications/", APP_PAYLOAD)
+        app_id = res.data["id"]
+        file = SimpleUploadedFile(
+            "passport.pdf",
+            b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF",
+            content_type="application/pdf",
+        )
+        client.post(
+            f"/api/applications/{app_id}/documents/",
+            {"doc_type": "id_proof", "file": file},
+            format="multipart",
+        )
+
+        results = []
+        barrier = threading.Barrier(2)
+
+        def submit():
+            barrier.wait()
+            results.append(client.post(f"/api/applications/{app_id}/submit/").status_code)
+
+        threads = [threading.Thread(target=submit) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(sorted(results), [status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST])
+        self.assertEqual(
+            KYCApplication.objects.get(pk=app_id).status,
+            KYCApplication.Status.SUBMITTED,
+        )
 
 
 # The admin templates reference static assets. The production storage backend
