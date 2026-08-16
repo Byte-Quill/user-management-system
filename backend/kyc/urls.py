@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .auth_views import (
     CookieTokenObtainPairView,
     CookieTokenRefreshView,
+    GoogleAuthView,
     LogoutView,
 )
 from .views import (
@@ -19,6 +20,7 @@ router.register("applications", KYCApplicationViewSet, basename="application")
 
 urlpatterns = [
     path("auth/register/", RegisterView.as_view(), name="register"),
+    path("auth/google/", GoogleAuthView.as_view(), name="google_auth"),
     path("auth/token/", CookieTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("auth/token/refresh/", CookieTokenRefreshView.as_view(), name="token_refresh"),
     path("auth/logout/", LogoutView.as_view(), name="logout"),

@@ -153,6 +153,30 @@ draft ──submit──► submitted ──approve──► approved
 - Rate limiting is enforced in two layers (see below); counters are shared
   across all gunicorn workers via the Postgres-backed database cache.
 
+### Google Sign-In (optional)
+
+Set `GOOGLE_CLIENT_ID` (backend) and `VITE_GOOGLE_CLIENT_ID` (frontend build)
+to the same OAuth "Web application" client ID from Google Cloud Console to
+enable it; leave unset to disable. The SPA's Google button posts the OIDC ID
+token to `POST /api/auth/google/`, where django-allauth's Google provider
+verifies it (signature against Google's public keys, issuer, audience, expiry,
+and `jti` replay via the cache). The local user is then resolved or
+provisioned and issued the **same** JWT session as password login (access
+token in the body, refresh token in the HttpOnly cookie) — no Django session
+is created.
+
+Account resolution order:
+
+1. An existing `SocialAccount` for `(google, uid)` → its user.
+2. An existing local user with the same Google-verified email → linked
+   (Google proved ownership of the email). Refused if that user already has a
+   *different* Google identity linked.
+3. Otherwise a new applicant is created with an unusable password.
+
+Google accounts are always created as `applicant`; the ID token must carry a
+verified email, and inactive users are rejected. The endpoint is
+Origin-checked (login-CSRF) and per-IP throttled like password login.
+
 ### Rate limiting
 
 **Edge layer (nginx)** — drops floods before they reach Django:
@@ -173,6 +197,7 @@ across workers; throttled responses return `429` with a `Retry-After` header:
 | `register` | 5/hour     | IP                  | `POST /api/auth/register/`         |
 | login      | 10/10 min  | email + IP          | `POST /api/auth/token/`            |
 | `login_ip` | 60/hour    | IP                  | `POST /api/auth/token/` (all emails) |
+| `google_login` | 60/hour | IP                 | `POST /api/auth/google/`           |
 | `download` | 300/hour   | IP                  | `GET /api/documents/{id}/download/` |
 | `submit`   | 10/hour    | user                | `POST /api/applications/{id}/submit/` |
 | `documents`| 30/hour    | user                | `POST /api/applications/{id}/documents/` |
@@ -192,6 +217,7 @@ the `Retry-After` wait time when it receives a 429.
 | ------ | -------------------------------------------- | ---- | ----------------------------- | ------------------------------------ |
 | POST   | `/api/auth/register/`                        | ❌   | —                             | Register applicant                   |
 | POST   | `/api/auth/token/`                           | ❌   | —                             | Login → access token + refresh cookie |
+| POST   | `/api/auth/google/`                          | ❌   | —                             | Google Sign-In → same JWT session    |
 | POST   | `/api/auth/token/refresh/`                   | ❌   | —                             | Rotate refresh cookie → new access   |
 | POST   | `/api/auth/logout/`                          | ❌   | —                             | Blacklist refresh token, clear cookie |
 | GET    | `/api/auth/me/`                              | ✅   | Any                           | Current user profile                 |
@@ -245,6 +271,7 @@ can be downloaded without the JWT (served as attachments, see above).
 | `DJANGO_SECURE_SSL_REDIRECT`  | ❌       | `false` when TLS terminates at a proxy that already forces HTTPS (default `true` in prod) |
 | `DJANGO_NUM_PROXIES`          | ❌       | Proxy hops in front of gunicorn for IP-keyed rate limits (default `1` = nginx) |
 | `CUSTOM_DOMAIN`               | ❌       | Optional extra CORS origin                     |
+| `GOOGLE_CLIENT_ID`            | ❌       | Google OAuth client ID; enables Google Sign-In (unset = disabled) |
 
 Documents are stored under `media/documents/` (mount a persistent volume at
 `/app/media` in production) and served through the signed download endpoint.
@@ -297,7 +324,7 @@ npm run dev                         # http://localhost:5173
 
 ```bash
 cd backend
-python manage.py test kyc           # 30 tests: auth, flow, uploads, downloads, permissions, admin
+python manage.py test kyc           # 41 tests: auth, Google Sign-In, flow, uploads, downloads, permissions, admin
 ```
 
 ---

@@ -115,6 +115,13 @@ export const login = (email: string, password: string) =>
     body: JSON.stringify({ email, password }),
   });
 
+/** Exchange a Google ID token (from the Sign-In button) for our JWT session. */
+export const googleLogin = (credential: string) =>
+  request<{ access: string }>("/auth/google/", {
+    method: "POST",
+    body: JSON.stringify({ credential }),
+  });
+
 export const register = (payload: {
   email: string;
   username: string;

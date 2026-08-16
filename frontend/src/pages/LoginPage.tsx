@@ -3,7 +3,9 @@ import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import * as api from "../api";
+import { GOOGLE_CLIENT_ID } from "../App";
 import { useAuth } from "../auth";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 import { validateEmail } from "../validation";
 
 export default function LoginPage() {
@@ -73,6 +75,18 @@ export default function LoginPage() {
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
+
+        {GOOGLE_CLIENT_ID && (
+          <>
+            <div className="my-4 flex items-center gap-3">
+              <div className="h-px flex-1 bg-slate-200" />
+              <span className="text-xs uppercase tracking-wide text-slate-400">or</span>
+              <div className="h-px flex-1 bg-slate-200" />
+            </div>
+            <GoogleSignInButton onSuccess={() => navigate("/")} onError={setError} />
+          </>
+        )}
+
         <p className="mt-4 text-center text-sm text-slate-600">
           No account?{" "}
           <Link to="/register" className="font-medium text-blue-600 hover:underline">

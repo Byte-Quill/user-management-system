@@ -8,6 +8,7 @@ interface AuthContextValue {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -44,6 +45,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(await api.fetchMe());
   }, []);
 
+  const loginWithGoogle = useCallback(async (credential: string) => {
+    const tokens = await api.googleLogin(credential);
+    api.setTokens(tokens.access);
+    setUser(await api.fetchMe());
+  }, []);
+
   const logout = useCallback(() => {
     // Best-effort server-side blacklist + cookie clear; always clear locally.
     void api.logout().catch((err) => {
@@ -54,8 +61,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, logout }),
-    [user, loading, login, logout]
+    () => ({ user, loading, login, loginWithGoogle, logout }),
+    [user, loading, login, loginWithGoogle, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

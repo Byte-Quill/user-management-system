@@ -93,6 +93,17 @@ class RegisterThrottle(AnonRateThrottle):
     scope = "register"
 
 
+class GoogleLoginThrottle(AnonRateThrottle):
+    """Per-IP cap on Google Sign-In attempts.
+
+    An attacker cannot forge a valid Google ID token, but every attempt still
+    costs an RSA signature verification plus a fetch of Google's public keys,
+    so the endpoint is bounded per IP to limit CPU/network abuse.
+    """
+
+    scope = "google_login"
+
+
 class DownloadThrottle(ScopedRateThrottle):
     """Per-IP cap on signed document downloads (unauthenticated endpoint).
 

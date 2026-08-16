@@ -1,8 +1,13 @@
+import { GoogleOAuthProvider } from "@react-oauth/google";
 import { lazy, Suspense, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider, useAuth } from "./auth";
 import Layout from "./components/Layout";
+
+// Google OAuth client ID (from Google Cloud Console). Empty when Google
+// Sign-In is not configured; the provider and button are then skipped.
+export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 
 // Route-level code splitting: pages load on demand instead of one big bundle.
 const ApplicationDetailPage = lazy(() => import("./pages/ApplicationDetailPage"));
@@ -33,7 +38,7 @@ function ReviewerOnly({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
-  return (
+  const app = (
     <AuthProvider>
       <Suspense fallback={<PageLoader />}>
         <Routes>
@@ -71,4 +76,11 @@ export default function App() {
       </Suspense>
     </AuthProvider>
   );
+
+  // Only mount the Google provider when a client ID is configured; otherwise
+  // GoogleOAuthProvider would throw on an empty clientId.
+  if (!GOOGLE_CLIENT_ID) {
+    return app;
+  }
+  return <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>{app}</GoogleOAuthProvider>;
 }

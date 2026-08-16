@@ -4,6 +4,15 @@ Django==6.0.8
 djangorestframework==3.17.2
 djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.9.0
+# Google Sign-In (OIDC ID-token verification + user provisioning). The
+# [socialaccount] extra pulls in requests/PyJWT/cryptography/oauthlib.
+django-allauth==65.19.1
+requests==2.34.2
+PyJWT==2.13.0
+cryptography==50.0.0
+oauthlib==3.3.1
+cffi==2.1.1
+pycparser==3.0
 # CSP is provided by Django 6 itself (SECURE_CSP + ContentSecurityPolicyMiddleware).
 gunicorn==26.0.0
 whitenoise==6.12.0

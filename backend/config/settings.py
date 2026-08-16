@@ -51,6 +51,14 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # django-allauth: Google Sign-In (OIDC ID-token verification + user
+    # provisioning). `sites` is required by allauth.socialaccount
+    # (SocialApp.sites M2M).
+    "django.contrib.sites",
+    "allauth",
+    "allauth.account",
+    "allauth.socialaccount",
+    "allauth.socialaccount.providers.google",
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
@@ -66,6 +74,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Required by django-allauth; sets up the per-request allauth context.
+    "allauth.account.middleware.AccountMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # Django 6's built-in CSP middleware (configured via SECURE_CSP below).
@@ -163,6 +173,7 @@ REST_FRAMEWORK = {
         "user": "600/hour",      # any authenticated request, per user
         "register": "5/hour",    # account creation, per IP
         "login_ip": "60/hour",   # login attempts per IP, across all emails
+        "google_login": "60/hour",  # Google Sign-In attempts, per IP
         "download": "300/hour",  # signed document downloads, per IP
         "submit": "10/hour",
         "documents": "30/hour",
@@ -186,6 +197,32 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
+}
+
+# --- django-allauth (Google Sign-In) -------------------------------------
+# allauth is used as a library: its Google provider verifies the OIDC ID
+# token (signature, issuer, audience, expiry, jti replay) and provisions or
+# links users via SocialAccount. Session tokens are still issued by SimpleJWT
+# (see GoogleAuthView / CookieTokenObtainPairView), so the refresh-token-in-
+# HttpOnly-cookie design is unchanged.
+SITE_ID = 1
+
+# OAuth "Web application" client ID from Google Cloud Console. It is the
+# expected `aud` claim when verifying ID tokens, and the SPA's Google button
+# needs the same value (VITE_GOOGLE_CLIENT_ID). Leave unset to disable
+# Google Sign-In entirely.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+
+ACCOUNT_EMAIL_VERIFICATION = "none"
+# ID-token flow only: never persist Google access tokens (less PII at rest).
+SOCIALACCOUNT_STORE_TOKENS = False
+SOCIALACCOUNT_PROVIDERS = {
+    "google": {
+        # Settings-backed app: no SocialApp DB row or admin setup required.
+        "APP": {"client_id": GOOGLE_CLIENT_ID},
+        "SCOPE": ["profile", "email"],
+        "AUTH_PARAMS": {"access_type": "online"},
+    }
 }
 
 # Refresh token lives in an HttpOnly cookie (not localStorage) so XSS cannot
