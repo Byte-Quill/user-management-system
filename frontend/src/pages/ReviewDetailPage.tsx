@@ -10,6 +10,7 @@ import {
 } from "../components/ApplicationSections";
 import StatusBadge from "../components/StatusBadge";
 import type { AuditEntry, KYCApplication } from "../types";
+import { validateReviewNotes } from "../validation";
 
 export default function ReviewDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -47,6 +48,11 @@ export default function ReviewDetailPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!id) return;
+    const notesError = validateReviewNotes(decision, notes);
+    if (notesError) {
+      setError(notesError);
+      return;
+    }
     setBusy(true);
     setError("");
     try {

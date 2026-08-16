@@ -5,6 +5,8 @@ import { useNavigate } from "react-router-dom";
 import * as api from "../api";
 import { Field, Select, TextInput } from "../components/Field";
 import type { ApplicationPayload } from "../types";
+import { validateApplication } from "../validation";
+import type { FieldErrors } from "../validation";
 
 const INITIAL: ApplicationPayload = {
   full_name: "",
@@ -25,17 +27,30 @@ const INITIAL: ApplicationPayload = {
 export default function ApplicationFormPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState<ApplicationPayload>(INITIAL);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors<keyof ApplicationPayload>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const set =
     (key: keyof ApplicationPayload) =>
-    (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       setForm({ ...form, [key]: e.target.value });
+      setFieldErrors((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    };
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+    const errors = validateApplication(form);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
     setBusy(true);
     try {
       const payload = { ...form, id_expiry: form.id_expiry || null };
@@ -55,17 +70,21 @@ export default function ApplicationFormPage() {
         <section>
           <h2 className="mb-3 text-lg font-semibold text-slate-800">Personal Information</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Full name">
-              <TextInput required value={form.full_name} onChange={set("full_name")} />
+            <Field label="Full name" error={fieldErrors.full_name}>
+              <TextInput required value={form.full_name} onChange={set("full_name")} maxLength={255}
+                invalid={!!fieldErrors.full_name} />
             </Field>
-            <Field label="Date of birth">
-              <TextInput required type="date" value={form.date_of_birth} onChange={set("date_of_birth")} />
+            <Field label="Date of birth" error={fieldErrors.date_of_birth}>
+              <TextInput required type="date" value={form.date_of_birth} onChange={set("date_of_birth")}
+                invalid={!!fieldErrors.date_of_birth} />
             </Field>
-            <Field label="Nationality">
-              <TextInput required value={form.nationality} onChange={set("nationality")} />
+            <Field label="Nationality" error={fieldErrors.nationality}>
+              <TextInput required value={form.nationality} onChange={set("nationality")} maxLength={100}
+                invalid={!!fieldErrors.nationality} />
             </Field>
-            <Field label="Phone">
-              <TextInput required value={form.phone} onChange={set("phone")} />
+            <Field label="Phone" error={fieldErrors.phone}>
+              <TextInput required value={form.phone} onChange={set("phone")} maxLength={30}
+                invalid={!!fieldErrors.phone} />
             </Field>
           </div>
         </section>
@@ -74,26 +93,32 @@ export default function ApplicationFormPage() {
           <h2 className="mb-3 text-lg font-semibold text-slate-800">Address</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
-              <Field label="Address line 1">
-                <TextInput required value={form.address_line1} onChange={set("address_line1")} />
+              <Field label="Address line 1" error={fieldErrors.address_line1}>
+                <TextInput required value={form.address_line1} onChange={set("address_line1")}
+                  maxLength={255} invalid={!!fieldErrors.address_line1} />
               </Field>
             </div>
             <div className="sm:col-span-2">
-              <Field label="Address line 2 (optional)">
-                <TextInput value={form.address_line2} onChange={set("address_line2")} />
+              <Field label="Address line 2 (optional)" error={fieldErrors.address_line2}>
+                <TextInput value={form.address_line2} onChange={set("address_line2")}
+                  maxLength={255} invalid={!!fieldErrors.address_line2} />
               </Field>
             </div>
-            <Field label="City">
-              <TextInput required value={form.city} onChange={set("city")} />
+            <Field label="City" error={fieldErrors.city}>
+              <TextInput required value={form.city} onChange={set("city")} maxLength={100}
+                invalid={!!fieldErrors.city} />
             </Field>
-            <Field label="State">
-              <TextInput required value={form.state} onChange={set("state")} />
+            <Field label="State" error={fieldErrors.state}>
+              <TextInput required value={form.state} onChange={set("state")} maxLength={100}
+                invalid={!!fieldErrors.state} />
             </Field>
-            <Field label="Postal code">
-              <TextInput required value={form.postal_code} onChange={set("postal_code")} />
+            <Field label="Postal code" error={fieldErrors.postal_code}>
+              <TextInput required value={form.postal_code} onChange={set("postal_code")} maxLength={20}
+                invalid={!!fieldErrors.postal_code} />
             </Field>
-            <Field label="Country">
-              <TextInput required value={form.country} onChange={set("country")} />
+            <Field label="Country" error={fieldErrors.country}>
+              <TextInput required value={form.country} onChange={set("country")} maxLength={100}
+                invalid={!!fieldErrors.country} />
             </Field>
           </div>
         </section>
@@ -101,18 +126,20 @@ export default function ApplicationFormPage() {
         <section>
           <h2 className="mb-3 text-lg font-semibold text-slate-800">Identity Document</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="ID type">
+            <Field label="ID type" error={fieldErrors.id_type}>
               <Select value={form.id_type} onChange={set("id_type")}>
                 <option value="passport">Passport</option>
                 <option value="national_id">National ID</option>
                 <option value="drivers_license">Driver's License</option>
               </Select>
             </Field>
-            <Field label="ID number">
-              <TextInput required value={form.id_number} onChange={set("id_number")} />
+            <Field label="ID number" error={fieldErrors.id_number}>
+              <TextInput required value={form.id_number} onChange={set("id_number")} maxLength={100}
+                invalid={!!fieldErrors.id_number} />
             </Field>
-            <Field label="ID expiry (optional)">
-              <TextInput type="date" value={form.id_expiry ?? ""} onChange={set("id_expiry")} />
+            <Field label="ID expiry (optional)" error={fieldErrors.id_expiry}>
+              <TextInput type="date" value={form.id_expiry ?? ""} onChange={set("id_expiry")}
+                invalid={!!fieldErrors.id_expiry} />
             </Field>
           </div>
         </section>

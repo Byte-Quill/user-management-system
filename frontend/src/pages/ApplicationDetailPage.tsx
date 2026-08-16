@@ -11,6 +11,7 @@ import {
 import Pagination from "../components/Pagination";
 import StatusBadge from "../components/StatusBadge";
 import type { AuditEntry, KYCApplication } from "../types";
+import { validateUploadFile } from "../validation";
 
 const DOC_TYPES = [
   { value: "id_proof", label: "ID Proof" },
@@ -31,6 +32,7 @@ export default function ApplicationDetailPage() {
   const [notice, setNotice] = useState("");
   const [docType, setDocType] = useState("id_proof");
   const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -81,11 +83,17 @@ export default function ApplicationDetailPage() {
 
   const upload = async () => {
     if (!file || !id) return;
+    const invalid = validateUploadFile(file);
+    if (invalid) {
+      setFileError(invalid);
+      return;
+    }
     setBusy(true);
     setNotice("");
     try {
       await api.uploadDocument(id, docType, file);
       setFile(null);
+      setFileError("");
       setNotice("Document uploaded.");
       await load();
     } catch (err) {
@@ -201,13 +209,18 @@ export default function ApplicationDetailPage() {
                 <input
                   type="file"
                   accept=".jpg,.jpeg,.png,.pdf"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => {
+                    const selected = e.target.files?.[0] ?? null;
+                    setFile(selected);
+                    setFileError(selected ? (validateUploadFile(selected) ?? "") : "");
+                  }}
                   className="flex-1 text-sm"
                 />
               </div>
+              {fileError && <p className="text-sm text-red-600">{fileError}</p>}
               <button
                 onClick={upload}
-                disabled={!file || busy}
+                disabled={!file || busy || !!fileError}
                 className="rounded bg-slate-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-600 disabled:opacity-50"
               >
                 Upload

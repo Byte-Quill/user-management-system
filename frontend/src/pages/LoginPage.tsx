@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth";
+import { validateEmail } from "../validation";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -14,6 +15,11 @@ export default function LoginPage() {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    const emailError = validateEmail(email);
+    if (emailError) {
+      setError(emailError);
+      return;
+    }
     setError("");
     setBusy(true);
     try {
