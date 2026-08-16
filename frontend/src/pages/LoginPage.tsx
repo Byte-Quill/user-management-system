@@ -6,27 +6,29 @@ import * as api from "../api";
 import { GOOGLE_CLIENT_ID } from "../App";
 import { useAuth } from "../auth";
 import GoogleSignInButton from "../components/GoogleSignInButton";
-import { validateEmail } from "../validation";
+import { validateIdentifier } from "../validation";
 
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const emailError = validateEmail(email);
-    if (emailError) {
-      setError(emailError);
+    const identifierError = validateIdentifier(identifier);
+    if (identifierError) {
+      setError(identifierError);
       return;
     }
     setError("");
     setBusy(true);
     try {
-      await login(email, password);
+      // The backend accepts email or phone in the `email` field.
+      await login(identifier.trim(), password);
       navigate("/");
     } catch (err) {
       // Surface rate-limit feedback; keep auth failures generic (no user
@@ -34,7 +36,7 @@ export default function LoginPage() {
       setError(
         err instanceof api.ApiError && err.status === 429
           ? api.errorMessage(err, "Too many attempts. Please try again later.")
-          : "Invalid email or password."
+          : "Invalid email/phone or password."
       );
     } finally {
       setBusy(false);
@@ -44,27 +46,40 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
       <div className="w-full max-w-sm rounded-lg bg-white p-8 shadow">
-        <h1 className="mb-6 text-center text-2xl font-bold text-slate-900">KYC Portal</h1>
-        <form onSubmit={onSubmit} className="space-y-4">
+        <h1 className="mb-6 text-center text-2xl font-bold text-slate-900">Login Portal</h1>
+        <form onSubmit={onSubmit} className="space-y-4" noValidate>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Email or phone</label>
             <input
-              type="email"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              autoFocus
+              autoComplete="username"
+              placeholder="you@example.com or +91 98765 43210"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Password</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-slate-700"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button

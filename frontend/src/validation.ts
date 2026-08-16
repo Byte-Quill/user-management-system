@@ -13,8 +13,8 @@ export const MAX_FILE_SIZE_MB = 5;
 export const ALLOWED_FILE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".pdf"];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Django's UnicodeUsernameValidator: letters, digits and @/./+/-/_ only.
-const USERNAME_RE = /^[\p{L}\p{N}._@+-]+$/u;
+// Person names: Unicode letters plus spaces, hyphens, apostrophes, periods.
+const NAME_RE = /^(?:[^\W\d_]|[ \-'.])+$/u;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Small subset of Django's CommonPasswordValidator list — catches the most
@@ -46,12 +46,42 @@ export function validateEmail(value: string): string | null {
   return null;
 }
 
-export function validateUsername(value: string): string | null {
-  if (isBlank(value)) return "Username is required.";
-  if (value.length > 150) return "Username must be at most 150 characters.";
-  if (!USERNAME_RE.test(value)) {
-    return "Username may only contain letters, digits and @ . + - _ characters.";
+/** Mirrors kyc/serializers.py validate_person_name. */
+export function validateName(
+  value: string,
+  label: string,
+  required = true
+): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return required ? `${label} is required.` : null;
+  if (trimmed.length > 150) return `${label} must be at most 150 characters.`;
+  if (!NAME_RE.test(trimmed)) {
+    return `${label} may only contain letters, spaces, hyphens, apostrophes and periods.`;
   }
+  return null;
+}
+
+export const GENDER_OPTIONS = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "other", label: "Other" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+] as const;
+
+export function validateGender(value: string): string | null {
+  if (!GENDER_OPTIONS.some((option) => option.value === value)) {
+    return "Please select a gender.";
+  }
+  return null;
+}
+
+/** Login identifier: a valid email OR a valid phone number. */
+export function validateIdentifier(value: string): string | null {
+  if (isBlank(value)) return "Email or phone is required.";
+  const trimmed = value.trim();
+  if (trimmed.includes("@")) return validateEmail(trimmed);
+  const phoneError = validatePhone(trimmed);
+  if (phoneError) return "Enter a valid email address or phone number.";
   return null;
 }
 

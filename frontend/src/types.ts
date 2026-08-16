@@ -1,11 +1,18 @@
 export type Role = "applicant" | "reviewer" | "admin";
 
+export type Gender = "male" | "female" | "other" | "prefer_not_to_say" | "";
+
 export interface User {
   id: number;
   email: string;
+  /** Auto-generated public User ID (e.g. PHIN-8F3K2A); never user-chosen. */
   username: string;
   first_name: string;
+  middle_name: string;
   last_name: string;
+  /** Canonical phone (+digits); null for Google-provisioned accounts. */
+  phone: string | null;
+  gender: Gender;
   role: Role;
 }
 

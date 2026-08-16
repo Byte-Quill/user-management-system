@@ -124,10 +124,12 @@ export const googleLogin = (credential: string) =>
 
 export const register = (payload: {
   email: string;
-  username: string;
   password: string;
-  first_name?: string;
-  last_name?: string;
+  first_name: string;
+  middle_name?: string;
+  last_name: string;
+  phone: string;
+  gender: string;
 }) =>
   request<User>("/auth/register/", { method: "POST", body: JSON.stringify(payload) });
 
