@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import * as api from "../api";
 import { useAuth } from "../auth";
 import { validateEmail } from "../validation";
 
@@ -25,8 +26,14 @@ export default function LoginPage() {
     try {
       await login(email, password);
       navigate("/");
-    } catch {
-      setError("Invalid email or password.");
+    } catch (err) {
+      // Surface rate-limit feedback; keep auth failures generic (no user
+      // enumeration via differing error messages).
+      setError(
+        err instanceof api.ApiError && err.status === 429
+          ? api.errorMessage(err, "Too many attempts. Please try again later.")
+          : "Invalid email or password."
+      );
     } finally {
       setBusy(false);
     }

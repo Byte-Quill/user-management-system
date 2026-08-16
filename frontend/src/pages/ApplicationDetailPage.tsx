@@ -97,11 +97,7 @@ export default function ApplicationDetailPage() {
       setNotice("Document uploaded.");
       await load();
     } catch (err) {
-      setNotice(
-        err instanceof api.ApiError
-          ? `Upload failed: ${JSON.stringify(err.body)}`
-          : "Upload failed."
-      );
+      setNotice(api.errorMessage(err, "Upload failed."));
     } finally {
       setBusy(false);
     }
@@ -116,9 +112,7 @@ export default function ApplicationDetailPage() {
       setNotice("Application submitted for review.");
       await load();
     } catch (err) {
-      setNotice(
-        err instanceof api.ApiError ? `Submit failed: ${JSON.stringify(err.body)}` : "Submit failed."
-      );
+      setNotice(api.errorMessage(err, "Submit failed."));
     } finally {
       setBusy(false);
     }
@@ -133,11 +127,7 @@ export default function ApplicationDetailPage() {
       setNotice("Document removed.");
       await Promise.all([load(), loadAudit(auditPage)]);
     } catch (err) {
-      setNotice(
-        err instanceof api.ApiError
-          ? `Remove failed: ${JSON.stringify(err.body)}`
-          : "Remove failed."
-      );
+      setNotice(api.errorMessage(err, "Remove failed."));
     } finally {
       setBusy(false);
     }

@@ -136,12 +136,35 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    # Global safety-net throttles applied to every DRF view. Views with
+    # stricter rules override throttle_classes (login, register) or add a
+    # scoped write throttle (submit/documents/review in the viewset).
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ),
     "DEFAULT_THROTTLE_RATES": {
+        "anon": "120/hour",      # any unauthenticated request, per IP
+        "user": "600/hour",      # any authenticated request, per user
+        "register": "5/hour",    # account creation, per IP
+        "login_ip": "60/hour",   # login attempts per IP, across all emails
+        "download": "300/hour",  # signed document downloads, per IP
         "submit": "10/hour",
         "documents": "30/hour",
         "review": "60/hour",
     },
+    # Adds a Retry-After header to 429 responses (RFC 6585) so clients can
+    # schedule a retry instead of hammering a still-throttled endpoint.
+    "EXCEPTION_HANDLER": "kyc.access.throttled_exception_handler",
+    # One proxy hop in the compose deployment (nginx -> gunicorn): trust the
+    # last X-Forwarded-For entry as the client IP for IP-keyed throttles.
+    # Raise DJANGO_NUM_PROXIES when deploying behind an extra load balancer.
+    "NUM_PROXIES": int(os.environ.get("DJANGO_NUM_PROXIES", "1")),
 }
+
+# Fixed window for the per-credential login throttle (kyc.access.LoginThrottle).
+LOGIN_THROTTLE_MAX_ATTEMPTS = 10
+LOGIN_THROTTLE_WINDOW_SECONDS = 10 * 60
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),

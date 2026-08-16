@@ -22,7 +22,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .access import LoginThrottle
+from .access import LoginIPThrottle, LoginThrottle
 from .serializers import EmailTokenObtainPairSerializer
 
 logger = logging.getLogger("kyc.auth")
@@ -76,7 +76,9 @@ class CookieTokenObtainPairView(TokenObtainPairView):
     """Login: return the access token in the body, refresh token in a cookie."""
 
     serializer_class = EmailTokenObtainPairSerializer
-    throttle_classes = [LoginThrottle]
+    # Per-credential window (email + IP) plus a per-IP cap that bounds
+    # credential stuffing across many accounts from one address.
+    throttle_classes = [LoginThrottle, LoginIPThrottle]
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)

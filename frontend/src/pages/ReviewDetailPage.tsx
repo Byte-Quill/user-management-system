@@ -59,11 +59,7 @@ export default function ReviewDetailPage() {
       await api.reviewApplication(id, decision, notes);
       navigate("/review");
     } catch (err) {
-      setError(
-        err instanceof api.ApiError
-          ? `Review failed: ${JSON.stringify(err.body)}`
-          : "Review failed."
-      );
+      setError(api.errorMessage(err, "Review failed."));
       setBusy(false);
     }
   };

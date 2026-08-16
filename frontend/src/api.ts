@@ -49,19 +49,29 @@ async function refreshAccess(): Promise<boolean> {
 export class ApiError extends Error {
   status: number;
   body: unknown;
-  constructor(status: number, body: unknown) {
+  /** Seconds to wait before retrying, from the Retry-After header on 429s. */
+  retryAfter: number | null;
+  constructor(status: number, body: unknown, retryAfter: number | null = null) {
     super(`API error ${status}`);
     this.status = status;
     this.body = body;
+    this.retryAfter = retryAfter;
   }
 }
 
 /** Flatten a DRF error body ({field: [messages]}) into a single display string. */
 export function errorMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiError && err.body && typeof err.body === "object") {
-    return Object.entries(err.body as Record<string, string | string[]>)
-      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
-      .join(" ");
+  if (err instanceof ApiError) {
+    if (err.status === 429) {
+      return err.retryAfter
+        ? `Too many requests. Please try again in ${err.retryAfter} seconds.`
+        : "Too many requests. Please try again later.";
+    }
+    if (err.body && typeof err.body === "object") {
+      return Object.entries(err.body as Record<string, string | string[]>)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
+        .join(" ");
+    }
   }
   return fallback;
 }
@@ -90,7 +100,10 @@ async function request<T>(
   }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new ApiError(res.status, body);
+    const retryHeader = res.headers.get("Retry-After");
+    const parsed = retryHeader ? Number(retryHeader) : NaN;
+    const retryAfter = Number.isFinite(parsed) ? Math.max(1, Math.ceil(parsed)) : null;
+    throw new ApiError(res.status, body, retryAfter);
   }
   if (res.status === 204) return undefined as T;
   return res.json();

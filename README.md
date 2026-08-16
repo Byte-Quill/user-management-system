@@ -147,8 +147,39 @@ draft ──submit──► submitted ──approve──► approved
   session.
 - Cookie-authenticated endpoints validate the `Origin` header against the
   configured CORS origins as CSRF protection.
-- Login and registration are rate-limited (counters shared across workers
-  via the Postgres-backed database cache).
+- Rate limiting is enforced in two layers (see below); counters are shared
+  across all gunicorn workers via the Postgres-backed database cache.
+
+### Rate limiting
+
+**Edge layer (nginx)** — drops floods before they reach Django:
+
+| Zone   | Applies to            | Limit                          |
+| ------ | --------------------- | ------------------------------ |
+| `auth` | `/api/auth/*`         | 2 req/s per IP (burst 10)      |
+| `api`  | `/api/*`, `/media/*`  | 20 req/s per IP (burst 40)     |
+| conn   | whole server          | 30 concurrent connections / IP |
+
+**Application layer (DRF)** — counters in the Postgres-backed cache, shared
+across workers; throttled responses return `429` with a `Retry-After` header:
+
+| Scope      | Limit      | Keyed by            | Endpoints                          |
+| ---------- | ---------- | ------------------- | ---------------------------------- |
+| `anon`     | 120/hour   | IP                  | any unauthenticated request        |
+| `user`     | 600/hour   | user                | any authenticated request          |
+| `register` | 5/hour     | IP                  | `POST /api/auth/register/`         |
+| login      | 10/10 min  | email + IP          | `POST /api/auth/token/`            |
+| `login_ip` | 60/hour    | IP                  | `POST /api/auth/token/` (all emails) |
+| `download` | 300/hour   | IP                  | `GET /api/documents/{id}/download/` |
+| `submit`   | 10/hour    | user                | `POST /api/applications/{id}/submit/` |
+| `documents`| 30/hour    | user                | `POST /api/applications/{id}/documents/` |
+| `review`   | 60/hour    | user                | `POST /api/applications/{id}/review/` |
+
+Login is bounded two ways: per credential (email + IP) to stop a single
+account being stuffed, and per IP to stop one address rotating through many
+accounts. Behind an extra load balancer, set `DJANGO_NUM_PROXIES` so
+IP-keyed throttles read the correct `X-Forwarded-For` entry. The SPA shows
+the `Retry-After` wait time when it receives a 429.
 
 ---
 
@@ -209,6 +240,7 @@ permission checks, so files can be opened in a new tab without the JWT.
 | `DATABASE_URL`                | ✅       | PostgreSQL connection string (any instance)    |
 | `CORS_ALLOWED_ORIGINS`        | ❌       | Frontend URL(s) when served cross-origin; not needed for same-origin deploys |
 | `DJANGO_SECURE_SSL_REDIRECT`  | ❌       | `false` when TLS terminates at a proxy that already forces HTTPS (default `true` in prod) |
+| `DJANGO_NUM_PROXIES`          | ❌       | Proxy hops in front of gunicorn for IP-keyed rate limits (default `1` = nginx) |
 | `CUSTOM_DOMAIN`               | ❌       | Optional extra CORS origin                     |
 
 Documents are stored under `media/documents/` (mount a persistent volume at
@@ -317,7 +349,10 @@ VITE_API_URL=https://api.example.com npm run build   # cross-origin deploys only
 - Deleting a `Document` also deletes the file from disk (PII).
 - Document downloads require a one-hour signed token issued only after the
   ownership/role permission checks pass.
-- Login/register endpoints are throttled via Postgres-backed cache counters.
+- Two-layer rate limiting: nginx `limit_req`/`limit_conn` zones at the edge,
+  plus DRF throttles (anon/user safety nets, login/register/download caps,
+  per-user write scopes) backed by Postgres cache counters; 429 responses
+  carry a `Retry-After` header.
 
 ---
 

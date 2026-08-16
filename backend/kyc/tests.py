@@ -1,4 +1,5 @@
 import os
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -7,6 +8,7 @@ from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from .access import LoginIPThrottle
 from .models import AuditLog, Document, KYCApplication
 
 User = get_user_model()
@@ -65,6 +67,23 @@ class AuthTests(APITestCase):
         res = self.client.post(
             "/api/auth/token/",
             {"email": "unknown@kyc.local", "password": "wrong-password"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        # RFC 6585: throttled responses tell clients when they can retry.
+        self.assertGreater(int(res.headers["Retry-After"]), 0)
+
+    @mock.patch.object(LoginIPThrottle, "THROTTLE_RATES", {"login_ip": "3/hour"})
+    def test_login_ip_throttle_caps_credential_stuffing(self):
+        """One IP rotating through many emails is still capped (per-IP scope)."""
+        for i in range(3):
+            res = self.client.post(
+                "/api/auth/token/",
+                {"email": f"victim{i}@kyc.local", "password": "wrong-password"},
+            )
+            self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+        res = self.client.post(
+            "/api/auth/token/",
+            {"email": "victim3@kyc.local", "password": "wrong-password"},
         )
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 

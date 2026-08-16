@@ -15,7 +15,13 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .access import IsOwnerOrReviewer, IsReviewer, RegisterThrottle, WriteThrottle
+from .access import (
+    DownloadThrottle,
+    IsOwnerOrReviewer,
+    IsReviewer,
+    RegisterThrottle,
+    WriteThrottle,
+)
 from .models import (
     DOWNLOAD_TOKEN_MAX_AGE,
     DOWNLOAD_TOKEN_SALT,
@@ -71,7 +77,8 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         scope = self.THROTTLE_SCOPES.get(self.action)
         if scope:
             self.throttle_scope = scope
-            return [WriteThrottle()]
+            # Scoped write limit plus the global anon/user safety nets.
+            return [WriteThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def get_serializer_context(self):
@@ -277,6 +284,10 @@ class DocumentDownloadView(APIView):
 
     authentication_classes = ()
     permission_classes = (AllowAny,)
+    # Unauthenticated (signed-token) endpoint: bound downloads per IP so the
+    # file-serving path cannot be scraped or used for a DoS.
+    throttle_scope = "download"
+    throttle_classes = (DownloadThrottle,)
 
     def get(self, request, doc_id):
         token = request.query_params.get("token", "")
