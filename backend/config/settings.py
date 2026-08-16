@@ -38,11 +38,11 @@ ALLOWED_HOSTS = [
 ]
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
-    for origin in os.environ.get(
-        "DJANGO_CSRF_TRUSTED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
-    ).split(",")
+    for origin in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
     if origin.strip()
 ]
+if DEBUG:
+    CSRF_TRUSTED_ORIGINS += ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -200,10 +200,10 @@ JWT_AUTH_COOKIE_SECURE = not DEBUG and SSL_ENABLED
 # with the Secure flag; fall back to Lax when HTTPS is not in play.
 JWT_AUTH_COOKIE_SAMESITE = "None" if (not DEBUG and SSL_ENABLED) else "Lax"
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOWED_ORIGINS: list[str] = []
+if DEBUG:
+    # Vite dev server only; production allowlists come from env/CUSTOM_DOMAIN.
+    CORS_ALLOWED_ORIGINS += ["http://localhost:5173", "http://127.0.0.1:5173"]
 # Required so the refresh-token cookie can be sent cross-origin from the SPA.
 CORS_ALLOW_CREDENTIALS = True
 
