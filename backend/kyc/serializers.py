@@ -141,7 +141,13 @@ class RegisterSerializer(serializers.ModelSerializer):
         digits = re.sub(r"\D", "", trimmed)
         if not PHONE_MIN_DIGITS <= len(digits) <= PHONE_MAX_DIGITS:
             raise serializers.ValidationError("Phone must contain 7-15 digits.")
-        return normalize_phone(trimmed)
+        normalized = normalize_phone(trimmed)
+        # Explicitly declared fields do not receive the ModelSerializer's
+        # UniqueValidator, so enforce uniqueness here — otherwise a duplicate
+        # hits the DB constraint and surfaces as a 500 instead of a 400.
+        if User.objects.filter(phone=normalized).exists():
+            raise serializers.ValidationError("This phone number is already registered.")
+        return normalized
 
     def validate(self, attrs):
         # create_user() does not run Django's password validators, so enforce

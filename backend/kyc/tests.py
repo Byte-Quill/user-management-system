@@ -48,6 +48,20 @@ def make_user(email, role, password="Passw0rd!"):
     )
 
 
+def register_payload(email, phone="+919876500001", **overrides):
+    """Valid registration body; each call needs a unique email AND phone."""
+    payload = {
+        "email": email,
+        "password": "Str0ngPass!",
+        "first_name": "Jane",
+        "last_name": "Doe",
+        "phone": phone,
+        "gender": "female",
+    }
+    payload.update(overrides)
+    return payload
+
+
 class LightweightCacheTests(TestCase):
     """Regression tests for kyc.cache.LightweightDatabaseCache.
 
@@ -100,7 +114,7 @@ class AuthTests(APITestCase):
     def test_register_and_login(self):
         res = self.client.post(
             "/api/auth/register/",
-            {"email": "new@kyc.local", "username": "newbie", "password": "Str0ngPass!"},
+            register_payload("new@kyc.local"),
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
@@ -109,6 +123,56 @@ class AuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("access", res.data)
+
+    def test_register_generates_user_id_and_ignores_client_username(self):
+        """The User ID is server-generated; a client-supplied username is dropped."""
+        res = self.client.post(
+            "/api/auth/register/",
+            register_payload("uid@kyc.local", username="squatted"),
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertRegex(res.data["username"], r"^PHIN-[A-Z2-9]{8}$")
+        self.assertNotEqual(res.data["username"], "squatted")
+        user = User.objects.get(email="uid@kyc.local")
+        self.assertEqual(user.username, res.data["username"])
+        self.assertEqual(user.gender, "female")
+        self.assertEqual(user.phone, "+919876500001")
+
+    def test_register_rejects_duplicate_phone_including_format_variants(self):
+        self.client.post("/api/auth/register/", register_payload("p1@kyc.local"))
+        # Same number, different formatting: normalization must catch it.
+        res = self.client.post(
+            "/api/auth/register/",
+            register_payload("p2@kyc.local", phone="+91 98765 00001"),
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("phone", res.data)
+
+    def test_register_rejects_invalid_fields(self):
+        cases = {
+            "phone": register_payload("bad1@kyc.local", phone="123"),  # < 7 digits
+            "gender": register_payload("bad2@kyc.local", gender="robot"),
+            "first_name": register_payload("bad3@kyc.local", first_name="Jane123"),
+            "last_name": register_payload("bad4@kyc.local", last_name=""),
+        }
+        for field, payload in cases.items():
+            res = self.client.post("/api/auth/register/", payload)
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, field)
+            self.assertIn(field, res.data, field)
+
+    def test_login_with_phone(self):
+        self.client.post("/api/auth/register/", register_payload("phone@kyc.local"))
+        res = self.client.post(
+            "/api/auth/token/", {"email": "+91 98765 00001", "password": "Str0ngPass!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("access", res.data)
+
+    def test_login_with_unknown_phone_is_generic_401(self):
+        res = self.client.post(
+            "/api/auth/token/", {"email": "+919999999999", "password": "whatever123"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_login_is_rate_limited(self):
         for _ in range(10):
@@ -148,7 +212,7 @@ class AuthTests(APITestCase):
         for i in range(5):
             res = self.client.post(
                 "/api/auth/register/",
-                {"email": f"spam{i}@kyc.local", "username": f"spam{i}", "password": "Str0ngPass!"},
+                register_payload(f"spam{i}@kyc.local", phone=f"+9198765001{i:02d}"),
             )
             self.assertIn(
                 res.status_code,
@@ -156,7 +220,7 @@ class AuthTests(APITestCase):
             )
         res = self.client.post(
             "/api/auth/register/",
-            {"email": "spam6@kyc.local", "username": "spam6", "password": "Str0ngPass!"},
+            register_payload("spam6@kyc.local", phone="+919876500199"),
         )
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
@@ -170,7 +234,7 @@ class AuthTests(APITestCase):
         for i, weak in enumerate(weak_passwords):
             res = self.client.post(
                 "/api/auth/register/",
-                {"email": f"weak{i}@kyc.local", "username": f"weak{i}", "password": weak},
+                register_payload(f"weak{i}@kyc.local", password=weak),
             )
             self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, weak)
             self.assertIn("password", res.data)
@@ -178,11 +242,10 @@ class AuthTests(APITestCase):
     def test_register_rejects_password_similar_to_email(self):
         res = self.client.post(
             "/api/auth/register/",
-            {
-                "email": "janedoe@kyc.local",
-                "username": "janedoe",
-                "password": "Janedoe2026",  # too similar to email/username
-            },
+            register_payload(
+                "janedoe@kyc.local",
+                password="Janedoe2026",  # too similar to email/name
+            ),
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("password", res.data)
@@ -384,6 +447,8 @@ class GoogleAuthTests(APITestCase):
         user = User.objects.get(email="guser@gmail.com")
         self.assertEqual(user.role, User.Role.APPLICANT)
         self.assertFalse(user.has_usable_password())
+        # Google-provisioned users get the same auto User ID scheme.
+        self.assertRegex(user.username, r"^PHIN-[A-Z2-9]{8}$")
         self.assertTrue(
             SocialAccount.objects.filter(user=user, provider="google", uid="google-uid-1").exists()
         )
