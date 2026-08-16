@@ -41,7 +41,10 @@ a **100% free and open-source stack** — no paid services, no vendor lock-in.
 
 Documents are served by the backend through a permission-checked endpoint
 that issues one-hour signed download URLs (Django `TimestampSigner`), so
-browsers can open files in a new tab without sending the JWT.
+browsers can download files without sending the JWT. Files are served with
+`Content-Disposition: attachment` — they are served on the app origin, and
+forcing a download prevents in-browser PDF JavaScript from running with the
+viewer's session.
 
 ---
 
@@ -206,10 +209,10 @@ the `Retry-After` wait time when it receives a 429.
 | GET    | `/api/applications/{id}/audit/`              | ✅   | Owner / Reviewer / Admin      | Audit trail (paginated)              |
 | GET    | `/api/review-queue/`                         | ✅   | Reviewer / Admin              | Pending review queue                 |
 
-Document uploads are validated for extension (jpg/jpeg/png/pdf), declared
-content type, magic-byte content, and size (≤ 5 MB). Document downloads use
-one-hour signed URLs issued only to users who pass the ownership/role
-permission checks, so files can be opened in a new tab without the JWT.
+Document uploads are validated for extension (jpg/jpeg/png/pdf), magic-byte
+content, and size (≤ 5 MB). Document downloads use one-hour signed URLs
+issued only to users who pass the ownership/role permission checks, so files
+can be downloaded without the JWT (served as attachments, see above).
 
 ---
 
@@ -350,7 +353,7 @@ VITE_API_URL=https://api.example.com npm run build   # cross-origin deploys only
 - Cookie-authenticated endpoints check the `Origin` header (CSRF mitigation).
 - Django 6's built-in CSP middleware is enabled via `SECURE_CSP`; plus
   `X-Frame-Options`, `X-Content-Type-Options`, HSTS, and secure cookies.
-- Uploads are validated by extension, MIME type, magic bytes, and size.
+- Uploads are validated by extension, magic bytes, and size.
 - Deleting a `Document` also deletes the file from disk (PII).
 - Document downloads require a one-hour signed token issued only after the
   ownership/role permission checks pass.

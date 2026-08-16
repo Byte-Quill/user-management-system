@@ -318,7 +318,11 @@ class DocumentDownloadView(APIView):
         )
         response = FileResponse(handle, content_type=content_type)
         # RFC 5987 filename*: safe for non-ASCII and quote characters.
+        # attachment (not inline): documents are served on the app origin,
+        # and in-browser PDF viewers execute embedded JavaScript in that
+        # origin's context — a malicious PDF could act with the viewer's
+        # session. Forcing a download removes that XSS surface.
         response["Content-Disposition"] = (
-            f"inline; filename*=UTF-8''{quote(document.original_filename)}"
+            f"attachment; filename*=UTF-8''{quote(document.original_filename)}"
         )
         return response

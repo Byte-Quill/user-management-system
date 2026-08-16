@@ -429,6 +429,9 @@ class ApplicationFlowTests(APITestCase):
         res = self.client.get(doc_url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res["Content-Type"], "application/pdf")
+        # attachment (not inline): documents are served on the app origin,
+        # so in-browser PDF JavaScript would run with the viewer's session.
+        self.assertIn("attachment", res["Content-Disposition"])
         content = b"".join(res.streaming_content)
         self.assertTrue(content.startswith(b"%PDF-1.4"))
 
