@@ -13,6 +13,12 @@ from .models import AuditLog, Document, KYCApplication
 
 User = get_user_model()
 
+# PBKDF2 hashing dominates the suite's runtime (every user create/login).
+# Tests never verify hashing strength, so use the fast MD5 hasher there.
+FAST_PASSWORD_HASHERS = override_settings(
+    PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"]
+)
+
 APP_PAYLOAD = {
     "full_name": "Jane Doe",
     "date_of_birth": "1992-05-20",
@@ -36,6 +42,7 @@ def make_user(email, role, password="Passw0rd!"):
     )
 
 
+@FAST_PASSWORD_HASHERS
 class AuthTests(APITestCase):
     def setUp(self):
         cache.clear()
@@ -159,6 +166,7 @@ class AuthTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
+@FAST_PASSWORD_HASHERS
 class ApplicationFlowTests(APITestCase):
     def setUp(self):
         cache.clear()  # keep user-scoped write throttles deterministic per test
@@ -406,6 +414,7 @@ class ApplicationFlowTests(APITestCase):
 # (CompressedManifestStaticFilesStorage) needs a collectstatic manifest, which
 # the test runner does not build (and DEBUG is forced off, so the manifest
 # lookup is not skipped). Use the plain storage so admin pages render.
+@FAST_PASSWORD_HASHERS
 @override_settings(
     STORAGES={
         "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
