@@ -14,7 +14,8 @@
 
 services:
   db:
-    image: postgres:16-alpine
+    # PostgreSQL 18 — latest stable major release (supported until Nov 2030).
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: kyc
