@@ -222,6 +222,20 @@ class AuthTests(APITestCase):
         res = self.client.post("/api/auth/token/refresh/")
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_logout_rejects_disallowed_origin(self):
+        """Logout CSRF: a cross-site POST must not blacklist the victim's
+        refresh token (forced logout / session destruction)."""
+        make_user("new@kyc.local", User.Role.APPLICANT)
+        self.client.post(
+            "/api/auth/token/",
+            {"email": "new@kyc.local", "password": "Passw0rd!"},
+        )
+        res = self.client.post("/api/auth/logout/", HTTP_ORIGIN="https://evil.example.com")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        # Session must still be alive.
+        res = self.client.post("/api/auth/token/refresh/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
 
 @FAST_PASSWORD_HASHERS
 class ApplicationFlowTests(APITestCase):

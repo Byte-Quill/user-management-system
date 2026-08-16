@@ -144,6 +144,14 @@ class LogoutView(APIView):
     permission_classes = (AllowAny,)
 
     def post(self, request):
+        # Logout CSRF: with SameSite=None (HTTPS deploys) a cross-site POST
+        # would send the victim's cookie and blacklist their refresh token.
+        if not origin_allowed(request):
+            logger.warning("Logout rejected: disallowed Origin %s", request.headers.get("Origin"))
+            return Response(
+                {"detail": "Cross-origin logout is not allowed."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         refresh = request.COOKIES.get(COOKIE_NAME) or request.data.get("refresh")
         if refresh:
             try:
