@@ -126,7 +126,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             try:
                 application.submit()
             except DjangoValidationError as exc:
-                raise ValidationError(exc.message)
+                raise ValidationError(exc.message) from exc
             log_action(application, request.user, AuditLog.Action.SUBMITTED)
         return Response(self.get_serializer(application).data)
 
@@ -165,7 +165,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         except DjangoValidationError as exc:
             raise ValidationError(
                 exc.message_dict if hasattr(exc, "message_dict") else exc.messages
-            )
+            ) from exc
         document.save()
 
         log_action(
@@ -199,9 +199,9 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
 
         try:
             document = application.documents.get(pk=doc_id)
-        except (Document.DoesNotExist, ValueError, DjangoValidationError):
+        except (Document.DoesNotExist, ValueError, DjangoValidationError) as exc:
             # ValueError/ValidationError: malformed UUID in the URL -> 404, never 500.
-            raise NotFound("Document not found.")
+            raise NotFound("Document not found.") from exc
 
         doc_type = document.doc_type
         original_filename = document.original_filename
@@ -231,7 +231,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             try:
                 application.apply_review(reviewer=request.user, decision=decision, notes=notes)
             except DjangoValidationError as exc:
-                raise ValidationError(exc.message)
+                raise ValidationError(exc.message) from exc
             action_map = {
                 KYCApplication.Decision.APPROVE: AuditLog.Action.APPROVED,
                 KYCApplication.Decision.REJECT: AuditLog.Action.REJECTED,
@@ -295,23 +295,23 @@ class DocumentDownloadView(APIView):
             signed_id = TimestampSigner(salt=DOWNLOAD_TOKEN_SALT).unsign(
                 token, max_age=DOWNLOAD_TOKEN_MAX_AGE
             )
-        except signing.BadSignature:
+        except signing.BadSignature as exc:
             # Covers forged tokens, tampered ids, and expired timestamps.
             # 404 (not 403) so an invalid token leaks nothing about the id.
-            raise NotFound("Document not found.")
+            raise NotFound("Document not found.") from exc
         if signed_id != str(doc_id):
             # A valid token for a *different* document must not grant access.
             raise NotFound("Document not found.")
         try:
             document = Document.objects.get(pk=doc_id)
-        except (Document.DoesNotExist, ValueError, DjangoValidationError):
-            raise NotFound("Document not found.")
+        except (Document.DoesNotExist, ValueError, DjangoValidationError) as exc:
+            raise NotFound("Document not found.") from exc
         if not document.file:
             raise NotFound("Document not found.")
         try:
             handle = document.file.open("rb")
-        except (FileNotFoundError, ValueError):
-            raise NotFound("Document not found.")
+        except (FileNotFoundError, ValueError) as exc:
+            raise NotFound("Document not found.") from exc
         content_type = (
             mimetypes.guess_type(document.original_filename)[0]
             or "application/octet-stream"

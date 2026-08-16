@@ -46,7 +46,6 @@ htmlcov/
 coverage/
 
 # GitHub / AI agent files
-.github/
 .copilot/
 .instructions.md
 .prompt.md

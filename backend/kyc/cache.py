@@ -82,7 +82,7 @@ class LightweightDatabaseCache(BaseDatabaseCache):
             return
         _last_cleanup = now
         cursor.execute(
-            "DELETE FROM %s WHERE %s < %%s" % (table, quote_name("expires")),
+            f"DELETE FROM {table} WHERE {quote_name('expires')} < %s",
             [connection.ops.adapt_datetimefield_value(tz_now())],
         )
 
@@ -96,13 +96,8 @@ class LightweightDatabaseCache(BaseDatabaseCache):
 
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT %s, %s FROM %s WHERE %s = %%s"
-                % (
-                    quote_name("value"),
-                    quote_name("expires"),
-                    table,
-                    quote_name("cache_key"),
-                ),
+                f"SELECT {quote_name('value')}, {quote_name('expires')} "
+                f"FROM {table} WHERE {quote_name('cache_key')} = %s",
                 [key],
             )
             row = cursor.fetchone()
@@ -134,15 +129,15 @@ class LightweightDatabaseCache(BaseDatabaseCache):
                 if connection.vendor == "sqlite":
                     # Atomic upsert on the primary key.
                     cursor.execute(
-                        "INSERT OR REPLACE INTO %s (%s, %s, %s) VALUES (%%s, %%s, %%s)"
-                        % (table, *cols),
+                        f"INSERT OR REPLACE INTO {table} "
+                        f"({cols[0]}, {cols[1]}, {cols[2]}) VALUES (%s, %s, %s)",
                         [key, encoded, exp],
                     )
                 else:
                     cursor.execute(
-                        "INSERT INTO %s (%s, %s, %s) VALUES (%%s, %%s, %%s) "
-                        "ON CONFLICT (%s) DO UPDATE SET %s = EXCLUDED.%s, %s = EXCLUDED.%s"
-                        % (table, *cols, cols[0], cols[1], cols[1], cols[2], cols[2]),
+                        f"INSERT INTO {table} ({cols[0]}, {cols[1]}, {cols[2]}) "
+                        f"VALUES (%s, %s, %s) ON CONFLICT ({cols[0]}) DO UPDATE SET "
+                        f"{cols[1]} = EXCLUDED.{cols[1]}, {cols[2]} = EXCLUDED.{cols[2]}",
                         [key, encoded, exp],
                     )
         except DatabaseError:
@@ -159,7 +154,7 @@ class LightweightDatabaseCache(BaseDatabaseCache):
         table = quote_name(self._table)
         with connection.cursor() as cursor:
             cursor.execute(
-                "DELETE FROM %s WHERE %s = %%s" % (table, quote_name("cache_key")),
+                f"DELETE FROM {table} WHERE {quote_name('cache_key')} = %s",
                 [key],
             )
             return bool(cursor.rowcount)
@@ -168,4 +163,4 @@ class LightweightDatabaseCache(BaseDatabaseCache):
         connection = self._connection(write=True)
         quote_name = connection.ops.quote_name
         with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM %s" % quote_name(self._table))
+            cursor.execute(f"DELETE FROM {quote_name(self._table)}")
