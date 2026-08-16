@@ -16,6 +16,8 @@ RUN npm run build
 
 FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Templated: the nginx entrypoint renders ${XFP} from the XFP env var into
+# /etc/nginx/conf.d/default.conf at container start.
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 EXPOSE 80

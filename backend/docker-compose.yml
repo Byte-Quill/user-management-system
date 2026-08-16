@@ -56,6 +56,12 @@ services:
   web:
     build: ../frontend
     restart: unless-stopped
+    environment:
+      # nginx.conf is a template: XFP renders the X-Forwarded-Proto value
+      # sent to the backend. nginx is the edge here, so it is our own scheme.
+      XFP: "$$scheme"
+      # Only substitute XFP; leave nginx's own $variables untouched.
+      NGINX_ENVSUBST_FILTER: XFP
     ports:
       - "8080:80"
     depends_on:

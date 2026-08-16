@@ -1,0 +1,44 @@
+# TLS edge for the compose stack: Caddy terminates HTTPS (automatic ACME
+# certificates) and proxies to the nginx SPA container.
+#
+#   cd backend
+#   export DJANGO_SECRET_KEY="..." POSTGRES_PASSWORD="..."
+#   export SITE_ADDRESS=kyc.example.com DJANGO_ALLOWED_HOSTS=kyc.example.com
+#   docker compose --profile tls -f docker-compose.yml -f docker-compose.tls.yml up --build
+#
+# For local HTTPS testing set SITE_ADDRESS=localhost (Caddy uses its internal CA).
+services:
+  web:
+    # Plain-HTTP nginx is no longer publicly reachable; Caddy is the edge.
+    ports:
+      - "127.0.0.1:8080:80"
+    environment:
+      # Behind Caddy: forward the edge scheme (Caddy sets X-Forwarded-Proto).
+      XFP: "$$http_x_forwarded_proto"
+      NGINX_ENVSUBST_FILTER: XFP
+
+  backend:
+    environment:
+      # TLS now terminates at Caddy: enable Secure cookies + HSTS + redirects.
+      DJANGO_SECURE_SSL_REDIRECT: "true"
+      # Django admin CSRF requires the public origin to be trusted under HTTPS.
+      DJANGO_CSRF_TRUSTED_ORIGINS: "https://${SITE_ADDRESS:?Set SITE_ADDRESS (public domain, or localhost for testing)}"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?Set SITE_ADDRESS (public domain, or localhost for testing)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  caddy_data:
+  caddy_config:

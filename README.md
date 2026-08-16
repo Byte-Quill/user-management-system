@@ -311,19 +311,39 @@ The whole stack (PostgreSQL + backend + nginx) runs from open-source images:
 ```bash
 cd backend
 export DJANGO_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+export POSTGRES_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
 docker compose up --build
 # open http://localhost:8080
 ```
 
 - Compose refuses to start without a strong `DJANGO_SECRET_KEY` (50+ chars):
   JWTs and signed download tokens are derived from it, so a known default
-  would make them forgeable.
+  would make them forgeable. `POSTGRES_PASSWORD` is likewise mandatory.
 
 - nginx serves the SPA and proxies `/api` + `/media` to the backend, so the
   deployment is same-origin: no CORS configuration needed.
 - Documents persist in the `media_data` volume; the database in `pg_data`.
-- For production: set a strong `DJANGO_SECRET_KEY`, put TLS in front (e.g.
-  Caddy), and back up both volumes (`pg_dump` + volume copy).
+- For production: use the TLS profile below, and back up both volumes
+  (`pg_dump` + volume copy).
+
+#### TLS (production)
+
+The base stack serves plain HTTP — fine for localhost, not for the internet.
+The `tls` profile adds a Caddy edge with automatic ACME certificates and
+switches Django to HTTPS mode (Secure cookies, HSTS, SSL redirect):
+
+```bash
+cd backend
+export SITE_ADDRESS=kyc.example.com
+export DJANGO_ALLOWED_HOSTS=kyc.example.com
+docker compose --profile tls -f docker-compose.yml -f docker-compose.tls.yml up --build
+```
+
+Caddy terminates TLS on 80/443; the plain-HTTP nginx container is bound to
+`127.0.0.1` only. For local HTTPS testing set `SITE_ADDRESS=localhost`
+(Caddy uses its internal CA). If you terminate TLS with your own proxy
+instead, keep `DJANGO_SECURE_SSL_REDIRECT=false` only if that proxy already
+forces HTTPS and forwards `X-Forwarded-Proto`.
 
 ### Any Docker host
 
@@ -355,7 +375,7 @@ VITE_API_URL=https://api.example.com npm run build   # cross-origin deploys only
   `X-Frame-Options`, `X-Content-Type-Options`, HSTS, and secure cookies.
 - Uploads are validated by extension, magic bytes, and size.
 - Deleting a `Document` also deletes the file from disk (PII).
-- Document downloads require a one-hour signed token issued only after the
+- Document downloads require a 15-minute signed token issued only after the
   ownership/role permission checks pass.
 - Two-layer rate limiting: nginx `limit_req`/`limit_conn` zones at the edge,
   plus DRF throttles (anon/user safety nets, login/register/download caps,
