@@ -1,4 +1,5 @@
 import os
+import secrets
 import uuid
 
 from django.conf import settings
@@ -10,6 +11,31 @@ from django.db import models
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
+
+# --- User ID generation ----------------------------------------------------
+
+# Unambiguous alphabet (no 0/O, 1/I/L) so IDs stay readable when spoken or
+# typed from a screenshot.
+USER_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+USER_ID_PREFIX = "PHIN-"
+USER_ID_RANDOM_LENGTH = 8
+
+
+def generate_user_id() -> str:
+    """Return a unique, auto-generated public User ID (e.g. PHIN-8F3K2A).
+
+    Users never choose or type a username anymore; the ID is stored in the
+    ``username`` column (kept because AbstractUser requires a USERNAME_FIELD
+    companion) and shown in the UI. Collisions are astronomically unlikely
+    (32^8 space) but are still checked and retried.
+    """
+    for _ in range(10):
+        candidate = USER_ID_PREFIX + "".join(
+            secrets.choice(USER_ID_ALPHABET) for _ in range(USER_ID_RANDOM_LENGTH)
+        )
+        if not User.objects.filter(username=candidate).exists():
+            return candidate
+    raise RuntimeError("Could not generate a unique user ID after 10 attempts")
 
 
 def validate_file_content(file_obj: UploadedFile):
@@ -50,20 +76,38 @@ def validate_file_content(file_obj: UploadedFile):
 
 
 class User(AbstractUser):
-    """Custom user with a role for the KYC workflow."""
+    """Custom user with a role for the KYC workflow.
+
+    Authentication is by email (or phone) + password, or Google. The
+    ``username`` column holds an auto-generated public User ID
+    (see ``generate_user_id``) — users never pick or type it.
+    """
 
     class Role(models.TextChoices):
         APPLICANT = "applicant", "Applicant"
         REVIEWER = "reviewer", "Reviewer"
         ADMIN = "admin", "Admin"
 
+    class Gender(models.TextChoices):
+        MALE = "male", "Male"
+        FEMALE = "female", "Female"
+        OTHER = "other", "Other"
+        PREFER_NOT_TO_SAY = "prefer_not_to_say", "Prefer not to say"
+
     email = models.EmailField(unique=True)
     role = models.CharField(
         max_length=20, choices=Role.choices, default=Role.APPLICANT
     )
+    middle_name = models.CharField(max_length=150, blank=True, default="")
+    gender = models.CharField(
+        max_length=20, choices=Gender.choices, blank=True, default=""
+    )
+    # Nullable so Google-provisioned users (no phone collected) can exist;
+    # Postgres unique constraints allow multiple NULLs.
+    phone = models.CharField(max_length=30, null=True, blank=True, unique=True)
 
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["username"]
+    REQUIRED_FIELDS = []
 
     def __str__(self):
         return f"{self.email} ({self.role})"
