@@ -1,6 +1,6 @@
 # Pinned to the exact versions verified in the working environment.
 # Bump deliberately and re-run the test suite; do not use floating ranges.
-Django==6.0.8
+Django==6.1
 djangorestframework==3.17.2
 djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.9.0
