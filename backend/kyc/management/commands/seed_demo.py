@@ -50,7 +50,14 @@ class Command(BaseCommand):
 
         applicant, created = User.objects.get_or_create(
             email="user@kyc.local",
-            defaults={"username": "applicant", "role": User.Role.APPLICANT},
+            defaults={
+                "username": "applicant",
+                "role": User.Role.APPLICANT,
+                "first_name": "Demo",
+                "last_name": "Applicant",
+                "phone": "+919876543210",
+                "gender": User.Gender.PREFER_NOT_TO_SAY,
+            },
         )
         if created:
             applicant.set_password("User@123")
