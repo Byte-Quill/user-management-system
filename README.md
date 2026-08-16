@@ -50,19 +50,19 @@ browsers can open files in a new tab without sending the JWT.
 ```
 user-management-system/
 ├── backend/                    # Django project
-│   ├── config/                 # settings, urls, wsgi/asgi
+│   ├── config/                 # settings, urls, wsgi
 │   ├── kyc/                    # main app
-│   │   ├── models.py           # User, KYCApplication, Document, AuditLog
+│   │   ├── models.py           # User, KYCApplication, Document, AuditLog,
+│   │   │                       # audit logging + signed download tokens
 │   │   ├── views.py            # applications, documents, review, audit
 │   │   ├── auth_views.py       # cookie-based JWT login/refresh/logout
 │   │   ├── serializers.py      # DRF serializers (signed URLs for documents)
-│   │   ├── permissions.py      # role + ownership permissions
+│   │   ├── access.py           # role/ownership permissions + throttles
 │   │   ├── middleware.py       # request-ID middleware
-│   │   ├── throttles.py        # login/register rate limits
+│   │   ├── cache.py            # Postgres-backed cache backend
 │   │   ├── health.py           # /healthz and /readyz probes
 │   │   ├── management/commands/
-│   │   │   ├── seed_demo.py            # demo users + sample data
-│   │   │   └── migrate_to_postgres.py  # one-off SQLite → Postgres copy
+│   │   │   └── seed_demo.py            # demo users + sample data
 │   │   └── migrations/
 │   ├── Dockerfile              # python:3.13-slim image
 │   ├── docker-compose.yml      # self-hosted stack: Postgres + backend + nginx
@@ -75,7 +75,8 @@ user-management-system/
 │   │   │                       # single-flight cookie refresh
 │   │   ├── auth.tsx            # auth context
 │   │   ├── types.ts            # types matching the backend API
-│   │   ├── components/         # Layout, Field, Pagination, StatusBadge
+│   │   ├── components/         # Layout, Field, Pagination, StatusBadge,
+│   │   │                       # ApplicationSections (details/docs/audit)
 │   │   ├── hooks/              # usePaginatedList
 │   │   └── pages/              # Dashboard, ApplicationForm/Detail,
 │   │                           # ReviewQueue/Detail, Login, Register
@@ -127,7 +128,7 @@ draft ──submit──► submitted ──approve──► approved
   └──edit & resubmit──┴──request_resubmission──► resubmission_requested
 ```
 
-- Submitting requires the three document types to be present.
+- Submitting requires at least one supporting document.
 - Only `submitted` applications can be reviewed; reviews are applied inside a
   `select_for_update()` transaction so concurrent reviews cannot race.
 - Every state change and document operation writes an `AuditLog` row.
@@ -161,14 +162,14 @@ draft ──submit──► submitted ──approve──► approved
 | POST   | `/api/auth/logout/`                          | ❌   | —                             | Blacklist refresh token, clear cookie |
 | GET    | `/api/auth/me/`                              | ✅   | Any                           | Current user profile                 |
 | GET    | `/healthz`                                   | ❌   | —                             | Liveness probe                       |
-| GET    | `/readyz`                                    | ❌   | —                             | Readiness probe (DB + storage)       |
+| GET    | `/readyz`                                    | ❌   | —                             | Readiness probe (database)           |
 | GET    | `/api/applications/`                         | ✅   | Applicant: own; Reviewer/Admin: all | List applications (paginated)  |
 | POST   | `/api/applications/`                         | ✅   | Applicant                     | Create draft application             |
 | GET    | `/api/applications/{id}/`                    | ✅   | Owner / Reviewer / Admin      | Application detail                   |
 | PATCH  | `/api/applications/{id}/`                    | ✅   | Applicant (draft only)        | Update draft                         |
 | POST   | `/api/applications/{id}/submit/`             | ✅   | Applicant                     | Submit for review                    |
 | POST   | `/api/applications/{id}/documents/`          | ✅   | Applicant                     | Upload document                      |
-| GET    | `/api/applications/{id}/documents/{doc_id}/` | ❌   | Signed token                | Download document (1-hour signed URL) |
+| GET    | `/api/documents/{doc_id}/download/`          | ❌   | Signed token                | Download document (1-hour signed URL) |
 | DELETE | `/api/applications/{id}/documents/{doc_id}/` | ✅   | Applicant                     | Delete document (file removed too)   |
 | POST   | `/api/applications/{id}/review/`             | ✅   | Reviewer / Admin              | approve / reject / request_resubmission |
 | GET    | `/api/applications/{id}/audit/`              | ✅   | Owner / Reviewer / Admin      | Audit trail (paginated)              |

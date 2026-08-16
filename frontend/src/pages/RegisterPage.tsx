@@ -30,15 +30,7 @@ export default function RegisterPage() {
       await login(form.email, form.password);
       navigate("/");
     } catch (err) {
-      if (err instanceof api.ApiError && err.body && typeof err.body === "object") {
-        setError(
-          Object.entries(err.body as Record<string, string | string[]>)
-            .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
-            .join(" ")
-        );
-      } else {
-        setError("Registration failed. Please try again.");
-      }
+      setError(api.errorMessage(err, "Registration failed. Please try again."));
     } finally {
       setBusy(false);
     }

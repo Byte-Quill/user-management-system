@@ -1,4 +1,4 @@
-"""Liveness and readiness probes for orchestrators (Render, K8s, etc.)."""
+"""Liveness and readiness probes for orchestrators (Docker, K8s, etc.)."""
 import logging
 
 from django.db import connection

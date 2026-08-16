@@ -367,7 +367,7 @@ class ApplicationFlowTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
         # A valid token for another document must not grant access.
-        from kyc.services import document_download_token
+        from kyc.models import document_download_token
 
         other_token = document_download_token("00000000-0000-0000-0000-000000000000")
         res = self.client.get(f"/api/documents/{doc_id}/download/?token={other_token}")
@@ -497,7 +497,8 @@ class AdminTests(TestCase):
         res = self.client.get(f"/admin/kyc/auditlog/{entry.pk}/change/")
         self.assertEqual(res.status_code, 200)
         self.assertContains(res, "View audit log")
-        self.assertEqual(self.client.get(f"/admin/kyc/auditlog/{entry.pk}/delete/").status_code, 403)
+        delete_url = f"/admin/kyc/auditlog/{entry.pk}/delete/"
+        self.assertEqual(self.client.get(delete_url).status_code, 403)
 
     def test_reviewer_dropdown_excludes_applicants(self):
         applicant = User.objects.create_user(

@@ -5,6 +5,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
+from django.core.signing import TimestampSigner
 from django.db import models
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
@@ -264,4 +265,26 @@ class AuditLog(models.Model):
 
     def __str__(self):
         # application_id is the FK column name; Pylance only knows the `application` field.
-        return f"{self.action} on {self.application_id} by {self.actor}"  # type: ignore[reportUnknownMemberType, reportAttributeAccessIssue]
+        return f"{self.action} on {self.application_id} by {self.actor}"  # type: ignore
+
+
+def log_action(application, actor, action, detail=""):
+    """Append an immutable audit entry for an application action."""
+    AuditLog.objects.create(
+        application=application, actor=actor, action=action, detail=detail
+    )
+
+
+# Signed download tokens are HMAC'd with SECRET_KEY, so they can be verified
+# statelessly (no DB lookup, no cache) and forged only by someone who holds
+# the secret key. Tokens are issued only to users who already passed the
+# API's ownership/role permission checks; anyone holding a valid token can
+# view the file until it expires (same semantics as object-storage signed
+# URLs).
+DOWNLOAD_TOKEN_SALT = "kyc.document-download"
+DOWNLOAD_TOKEN_MAX_AGE = 3600
+
+
+def document_download_token(doc_id) -> str:
+    """Return a time-limited signed token authorising download of a document."""
+    return TimestampSigner(salt=DOWNLOAD_TOKEN_SALT).sign(str(doc_id))

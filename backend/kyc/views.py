@@ -15,8 +15,15 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import AuditLog, Document, KYCApplication
-from .permissions import IsOwnerOrReviewer, IsReviewer
+from .access import IsOwnerOrReviewer, IsReviewer, RegisterThrottle, WriteThrottle
+from .models import (
+    DOWNLOAD_TOKEN_MAX_AGE,
+    DOWNLOAD_TOKEN_SALT,
+    AuditLog,
+    Document,
+    KYCApplication,
+    log_action,
+)
 from .serializers import (
     AuditLogSerializer,
     DocumentSerializer,
@@ -25,12 +32,6 @@ from .serializers import (
     ReviewSerializer,
     UserSerializer,
 )
-from .services import (
-    DOWNLOAD_TOKEN_MAX_AGE,
-    DOWNLOAD_TOKEN_SALT,
-    log_action,
-)
-from .throttles import RegisterThrottle, WriteThrottle
 
 User = get_user_model()
 
@@ -81,7 +82,10 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         return context
 
     def get_queryset(self):
-        qs = KYCApplication.objects.select_related("applicant", "reviewer").prefetch_related("documents")
+        qs = (
+            KYCApplication.objects.select_related("applicant", "reviewer")
+            .prefetch_related("documents")
+        )
         user = self.request.user
         if user.is_reviewer:
             status_filter = self.request.query_params.get("status")
@@ -109,7 +113,9 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             if application.applicant_id != request.user.id:
                 raise ValidationError("Only the applicant can submit this application.")
             if not application.documents.exists():
-                raise ValidationError("At least one supporting document is required before submission.")
+                raise ValidationError(
+                    "At least one supporting document is required before submission."
+                )
             try:
                 application.submit()
             except DjangoValidationError as exc:
@@ -130,7 +136,9 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             KYCApplication.Status.DRAFT,
             KYCApplication.Status.RESUBMISSION_REQUESTED,
         ):
-            raise ValidationError("Documents can only be uploaded while the application is editable.")
+            raise ValidationError(
+                "Documents can only be uploaded while the application is editable."
+            )
 
         file_obj = request.FILES.get("file")
         doc_type = request.data.get("doc_type")
@@ -148,7 +156,9 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         try:
             document.full_clean()
         except DjangoValidationError as exc:
-            raise ValidationError(exc.message_dict if hasattr(exc, "message_dict") else exc.messages)
+            raise ValidationError(
+                exc.message_dict if hasattr(exc, "message_dict") else exc.messages
+            )
         document.save()
 
         log_action(
@@ -176,7 +186,9 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             KYCApplication.Status.DRAFT,
             KYCApplication.Status.RESUBMISSION_REQUESTED,
         ):
-            raise ValidationError("Documents can only be removed while the application is editable.")
+            raise ValidationError(
+                "Documents can only be removed while the application is editable."
+            )
 
         try:
             document = application.documents.get(pk=doc_id)
@@ -216,7 +228,9 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             action_map = {
                 KYCApplication.Decision.APPROVE: AuditLog.Action.APPROVED,
                 KYCApplication.Decision.REJECT: AuditLog.Action.REJECTED,
-                KYCApplication.Decision.REQUEST_RESUBMISSION: AuditLog.Action.RESUBMISSION_REQUESTED,
+                KYCApplication.Decision.REQUEST_RESUBMISSION: (
+                    AuditLog.Action.RESUBMISSION_REQUESTED
+                ),
             }
             log_action(application, request.user, action_map[decision], detail=notes)
         return Response(self.get_serializer(application).data)

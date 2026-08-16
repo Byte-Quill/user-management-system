@@ -17,10 +17,6 @@ export function clearTokens() {
   accessToken = null;
 }
 
-export function isAuthenticated() {
-  return !!accessToken;
-}
-
 async function doRefresh(): Promise<boolean> {
   // The refresh cookie travels with the request automatically.
   const res = await fetch(`${BASE}/auth/token/refresh/`, {
@@ -58,6 +54,16 @@ export class ApiError extends Error {
     this.status = status;
     this.body = body;
   }
+}
+
+/** Flatten a DRF error body ({field: [messages]}) into a single display string. */
+export function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError && err.body && typeof err.body === "object") {
+    return Object.entries(err.body as Record<string, string | string[]>)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
+      .join(" ");
+  }
+  return fallback;
 }
 
 async function request<T>(

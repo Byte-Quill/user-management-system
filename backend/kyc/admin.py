@@ -1,8 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import AuditLog, Document, KYCApplication, User
-from .services import log_action
+from .models import AuditLog, Document, KYCApplication, User, log_action
 
 
 @admin.register(User)

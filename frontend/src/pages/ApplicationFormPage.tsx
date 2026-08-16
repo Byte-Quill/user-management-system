@@ -42,15 +42,7 @@ export default function ApplicationFormPage() {
       const app = await api.createApplication(payload as ApplicationPayload);
       navigate(`/applications/${app.id}`);
     } catch (err) {
-      if (err instanceof api.ApiError && err.body && typeof err.body === "object") {
-        setError(
-          Object.entries(err.body as Record<string, string | string[]>)
-            .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
-            .join(" ")
-        );
-      } else {
-        setError("Failed to create application.");
-      }
+      setError(api.errorMessage(err, "Failed to create application."));
     } finally {
       setBusy(false);
     }

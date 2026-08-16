@@ -64,7 +64,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         # Time-limited signed URL served by our own download view: the token
         # is only issued to users who already passed the permission checks,
         # so the browser can open the file in a new tab without the JWT.
-        from kyc.services import document_download_token
+        from .models import document_download_token
 
         url = f"/api/documents/{obj.id}/download/?token={document_download_token(obj.id)}"
         return request.build_absolute_uri(url)

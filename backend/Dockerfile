@@ -5,10 +5,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DJANGO_SETTINGS_MODULE=config.settings
 
 # psycopg2-binary ships its own libpq, so no system build deps are needed.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 COPY requirements.txt .
