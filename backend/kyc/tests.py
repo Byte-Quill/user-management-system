@@ -1,4 +1,5 @@
 import os
+import time
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -498,6 +499,23 @@ class ApplicationFlowTests(APITestCase):
         res = self.client.get("/api/applications/")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIsNone(res.data["results"][0]["documents"][0]["file"])
+
+    def test_download_token_expires(self):
+        """Tokens travel in URLs (logs, history) — the replay window is short."""
+        from kyc.models import DOWNLOAD_TOKEN_MAX_AGE, document_download_token
+
+        self.auth(self.applicant)
+        app_id = self.create_app()
+        res = self.upload_doc(app_id)
+        doc_id = res.data["id"]
+        token = document_download_token(doc_id)
+
+        with mock.patch(
+            "django.core.signing.time.time",
+            return_value=time.time() + DOWNLOAD_TOKEN_MAX_AGE + 1,
+        ):
+            res = self.client.get(f"/api/documents/{doc_id}/download/?token={token}")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
 
 # The admin templates reference static assets. The production storage backend

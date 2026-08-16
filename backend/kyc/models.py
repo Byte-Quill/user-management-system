@@ -282,7 +282,10 @@ def log_action(application, actor, action, detail=""):
 # view the file until it expires (same semantics as object-storage signed
 # URLs).
 DOWNLOAD_TOKEN_SALT = "kyc.document-download"
-DOWNLOAD_TOKEN_MAX_AGE = 3600
+# Short TTL: tokens are minted on detail-view load and used immediately.
+# They travel in URLs (access logs, browser history), so keep the replay
+# window small.
+DOWNLOAD_TOKEN_MAX_AGE = 900
 
 
 def document_download_token(doc_id) -> str:
