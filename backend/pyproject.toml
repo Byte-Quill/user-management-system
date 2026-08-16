@@ -1,8 +1,8 @@
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-src = ["backend"]
-exclude = ["backend/kyc/migrations"]
+src = ["."]
+exclude = ["kyc/migrations"]
 
 [tool.ruff.lint]
 ignore = [
@@ -20,11 +20,11 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"backend/kyc/admin.py" = ["RUF012"]
-"backend/kyc/auth_views.py" = ["RUF012"]
-"backend/kyc/views.py" = ["RUF012", "E501", "B904"]
-"backend/kyc/serializers.py" = ["RUF012"]
-"backend/kyc/tests.py" = ["S101", "T201"]
+"kyc/admin.py" = ["RUF012"]
+"kyc/auth_views.py" = ["RUF012"]
+"kyc/views.py" = ["RUF012", "E501", "B904"]
+"kyc/serializers.py" = ["RUF012"]
+"kyc/tests.py" = ["S101", "T201"]
 
 [tool.ruff.format]
 quote-style = "double"

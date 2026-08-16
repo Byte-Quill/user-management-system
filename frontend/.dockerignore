@@ -1,0 +1,9 @@
+# Keep the Docker build context small and free of local artifacts.
+node_modules/
+dist/
+.vite/
+*.log
+.env
+.env.*
+Dockerfile
+.dockerignore

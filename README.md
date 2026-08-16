@@ -10,8 +10,7 @@ a **100% free and open-source stack** — no paid services, no vendor lock-in.
   time-limited signed download URL
 - **Cache / rate limiting:** Django's database cache (Postgres-backed) — no
   Redis service required
-- **Deployment:** docker-compose (Postgres + backend + nginx), Render
-  (`render.yaml`), or any Docker host
+- **Deployment:** docker-compose (Postgres + backend + nginx) or any Docker host
 
 ---
 
@@ -63,6 +62,8 @@ user-management-system/
 │   │   │   └── migrate_to_postgres.py  # one-off SQLite → Postgres copy
 │   │   └── migrations/
 │   ├── Dockerfile              # python:3.13-slim image
+│   ├── docker-compose.yml      # self-hosted stack: Postgres + backend + nginx
+│   ├── pyproject.toml          # ruff lint/format config
 │   ├── entrypoint.sh
 │   └── requirements.txt
 ├── frontend/                   # React SPA
@@ -78,8 +79,7 @@ user-management-system/
 │   ├── Dockerfile              # nginx static image (also proxies /api)
 │   ├── nginx.conf
 │   └── package.json
-├── docker-compose.yml          # self-hosted stack: Postgres + backend + nginx
-└── render.yaml                 # Render blueprint (backend only)
+└── README.md
 ```
 
 ---
@@ -270,6 +270,7 @@ python manage.py test kyc           # 24 tests: auth, flow, uploads, downloads, 
 The whole stack (PostgreSQL + backend + nginx) runs from open-source images:
 
 ```bash
+cd backend
 docker compose up --build
 # open http://localhost:8080
 ```
@@ -280,18 +281,12 @@ docker compose up --build
 - For production: set a strong `DJANGO_SECRET_KEY`, put TLS in front (e.g.
   Caddy), and back up both volumes (`pg_dump` + volume copy).
 
-### Render (backend)
+### Any Docker host
 
-`render.yaml` defines a single Python web service (`kyc-backend`):
-
-1. Render → **New → Blueprint** → select this repo.
-2. Set the `sync: false` env vars in the dashboard: `DATABASE_URL`,
-   `CORS_ALLOWED_ORIGINS`, `DJANGO_CSRF_TRUSTED_ORIGINS`.
-3. Deploy. The start command runs `migrate`, `createcachetable`,
-   `collectstatic`, then gunicorn.
-
-The backend can also run from `backend/Dockerfile`
-(`python:3.13-slim`, non-root user, `entrypoint.sh` runs migrations).
+The backend can also run standalone from `backend/Dockerfile`
+(`python:3.13-slim`, non-root user, `entrypoint.sh` runs `migrate`,
+`createcachetable`, and `collectstatic` before starting gunicorn). Point
+`DATABASE_URL` at any reachable PostgreSQL instance.
 
 ### Frontend
 
@@ -299,7 +294,7 @@ Build the SPA and serve it statically:
 
 ```bash
 cd frontend
-VITE_API_URL=https://kyc-backend.onrender.com npm run build   # cross-origin only
+VITE_API_URL=https://api.example.com npm run build   # cross-origin deploys only
 ```
 
 `frontend/Dockerfile` builds the app and serves `dist/` with nginx

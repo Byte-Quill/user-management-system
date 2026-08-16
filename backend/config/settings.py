@@ -169,11 +169,10 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 if not DEBUG:
-    CORS_ALLOWED_ORIGIN_REGEXES = [
-        r"^https://.*\.onrender\.com$",
-        r"^https://.*\.up\.railway\.app$",
-        r"^https://.*\.vercel\.app$",
-    ]
+    # Same-origin deployments (docker-compose/nginx proxy) need no CORS
+    # entries at all. For split-origin setups, list the frontend origin(s)
+    # explicitly via CORS_ALLOWED_ORIGINS / CUSTOM_DOMAIN — no vendor
+    # wildcard allowlists.
     custom_domain = os.environ.get("CUSTOM_DOMAIN")
     if custom_domain:
         CORS_ALLOWED_ORIGINS.append(f"https://{custom_domain}")
