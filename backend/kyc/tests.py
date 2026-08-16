@@ -110,6 +110,33 @@ class AuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    def test_register_rejects_weak_passwords(self):
+        """AUTH_PASSWORD_VALIDATORS must be enforced server-side, not just in the SPA."""
+        weak_passwords = [
+            "12345678",       # all-numeric (NumericPasswordValidator)
+            "password",       # too common (CommonPasswordValidator)
+            "short",          # below min length
+        ]
+        for i, weak in enumerate(weak_passwords):
+            res = self.client.post(
+                "/api/auth/register/",
+                {"email": f"weak{i}@kyc.local", "username": f"weak{i}", "password": weak},
+            )
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, weak)
+            self.assertIn("password", res.data)
+
+    def test_register_rejects_password_similar_to_email(self):
+        res = self.client.post(
+            "/api/auth/register/",
+            {
+                "email": "janedoe@kyc.local",
+                "username": "janedoe",
+                "password": "Janedoe2026",  # too similar to email/username
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("password", res.data)
+
     def test_me_requires_auth(self):
         self.assertEqual(self.client.get("/api/auth/me/").status_code, status.HTTP_401_UNAUTHORIZED)
 

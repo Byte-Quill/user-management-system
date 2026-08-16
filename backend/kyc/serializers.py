@@ -1,10 +1,26 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import AuditLog, Document, KYCApplication
 
 User = get_user_model()
+
+
+class PasswordField(serializers.CharField):
+    """Write-only password field for registration.
+
+    The full AUTH_PASSWORD_VALIDATORS policy is applied in
+    ``RegisterSerializer.validate`` (with a user instance, so the
+    attribute-similarity validator can compare against email/username).
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("write_only", True)
+        kwargs.setdefault("min_length", 8)
+        super().__init__(**kwargs)
 
 
 class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -18,12 +34,28 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=8)
+    password = PasswordField()
     role = serializers.CharField(read_only=True)
 
     class Meta:
         model = User
         fields = ("id", "email", "username", "password", "first_name", "last_name", "role")
+
+    def validate(self, attrs):
+        # create_user() does not run Django's password validators, so enforce
+        # AUTH_PASSWORD_VALIDATORS here. Passing an (unsaved) user lets the
+        # attribute-similarity validator compare against email/username.
+        user = User(
+            email=attrs.get("email", ""),
+            username=attrs.get("username", ""),
+            first_name=attrs.get("first_name", ""),
+            last_name=attrs.get("last_name", ""),
+        )
+        try:
+            validate_password(attrs["password"], user=user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": exc.messages}) from exc
+        return attrs
 
     def create(self, validated_data):
         return User.objects.create_user(
