@@ -7,6 +7,7 @@
 #
 # Production notes:
 #   - Set a strong DJANGO_SECRET_KEY (never ship the default).
+#   - Set POSTGRES_PASSWORD (required; no default).
 #   - Put TLS in front (e.g. Caddy) and drop DJANGO_SECURE_SSL_REDIRECT=false
 #     only if the proxy already forces HTTPS; otherwise keep the default.
 #   - Back up Postgres (docker compose exec db pg_dump -U kyc kyc > backup.sql)
@@ -20,7 +21,7 @@ services:
     environment:
       POSTGRES_DB: kyc
       POSTGRES_USER: kyc
-      POSTGRES_PASSWORD: kyc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD (strong random value)}
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -40,7 +41,7 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set a strong DJANGO_SECRET_KEY (50+ random chars)}
       DJANGO_DEBUG: "false"
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      DATABASE_URL: postgres://kyc:kyc@db:5432/kyc
+      DATABASE_URL: postgres://kyc:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD (strong random value)}@db:5432/kyc
       # Plain HTTP behind nginx: Secure cookies/HSTS/redirects would break.
       DJANGO_SECURE_SSL_REDIRECT: "false"
       # Same-origin deployment: no cross-origin requests, so no CORS origins
