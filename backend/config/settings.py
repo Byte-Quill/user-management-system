@@ -97,13 +97,16 @@ DATABASES = {
 # Rate-limit counters and the document-URL cache. The database cache backend
 # keeps everything in the Postgres we already run: shared across all gunicorn
 # workers, survives restarts, and needs no extra service or dependency.
-# Throttling at this scale is a handful of indexed key/value lookups per
-# request — negligible. (The JWT blacklist lives in Postgres tables via the
-# token_blacklist app, not in the cache.) If load ever demands a real KV
+# kyc.cache.LightweightDatabaseCache is a drop-in optimisation of Django's
+# DatabaseCache: it replaces the stock backend's per-write SELECT COUNT(*)
+# full-table scan with a single indexed upsert, and periodically sweeps
+# expired rows (the stock backend only culls lazily, so its table grows
+# without bound). The JWT blacklist lives in Postgres tables via the
+# token_blacklist app, not in the cache. If load ever demands a real KV
 # store, swap BACKEND/LOCATION to Valkey (BSD-3, Redis-protocol compatible).
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "BACKEND": "kyc.cache.LightweightDatabaseCache",
         "LOCATION": "kyc_cache",
     }
 }

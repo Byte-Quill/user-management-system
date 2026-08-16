@@ -9,7 +9,10 @@ a **100% free and open-source stack** — no paid services, no vendor lock-in.
 - **File storage:** local `media/` volume, served through an authenticated,
   time-limited signed download URL
 - **Cache / rate limiting:** Django's database cache (Postgres-backed) — no
-  Redis service required
+  Redis service required. Uses an optimized backend
+  (`kyc.cache.LightweightDatabaseCache`) that replaces the stock backend's
+  per-write full-table scan with a single indexed upsert and periodically
+  sweeps expired rows.
 - **Deployment:** docker-compose (Postgres + backend + nginx) or any Docker host
 
 ---
