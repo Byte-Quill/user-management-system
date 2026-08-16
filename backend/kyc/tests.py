@@ -340,6 +340,22 @@ class ApplicationFlowTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_future_date_of_birth_rejected(self):
+        """The API (not just the SPA) must enforce the DOB business rule."""
+        self.auth(self.applicant)
+        payload = {**APP_PAYLOAD, "date_of_birth": "2999-01-01"}
+        res = self.client.post("/api/applications/", payload)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("date_of_birth", res.data)
+
+    def test_invalid_phone_rejected(self):
+        self.auth(self.applicant)
+        for bad_phone in ("abc", "12", "12345678901234567890"):
+            payload = {**APP_PAYLOAD, "phone": bad_phone}
+            res = self.client.post("/api/applications/", payload)
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, bad_phone)
+            self.assertIn("phone", res.data)
+
     def test_remove_document(self):
         self.auth(self.applicant)
         app_id = self.create_app()

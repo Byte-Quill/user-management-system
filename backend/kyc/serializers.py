@@ -1,3 +1,6 @@
+import re
+from datetime import date
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -7,6 +10,13 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .models import AuditLog, Document, KYCApplication
 
 User = get_user_model()
+
+# Mirrors the SPA's validation.ts so the API is the source of truth:
+# direct API clients cannot bypass the business rules.
+PHONE_CHARS_RE = re.compile(r"^\+?[\d\s\-().]+$")
+PHONE_MIN_DIGITS = 7
+PHONE_MAX_DIGITS = 15
+DOB_MIN = date(1900, 1, 1)
 
 
 class PasswordField(serializers.CharField):
@@ -154,6 +164,24 @@ class KYCApplicationSerializer(serializers.ModelSerializer):
             "updated_at",
             "submitted_at",
         )
+
+    def validate_date_of_birth(self, value):
+        if value > date.today():
+            raise serializers.ValidationError("Date of birth cannot be in the future.")
+        if value < DOB_MIN:
+            raise serializers.ValidationError("Enter a valid date of birth.")
+        return value
+
+    def validate_phone(self, value):
+        trimmed = value.strip()
+        if not PHONE_CHARS_RE.match(trimmed):
+            raise serializers.ValidationError(
+                "Enter a valid phone number (digits, spaces, + - ( ) .)."
+            )
+        digits = re.sub(r"\D", "", trimmed)
+        if not (PHONE_MIN_DIGITS <= len(digits) <= PHONE_MAX_DIGITS):
+            raise serializers.ValidationError("Phone must contain 7-15 digits.")
+        return value
 
     def validate(self, attrs):
         request = self.context.get("request")
