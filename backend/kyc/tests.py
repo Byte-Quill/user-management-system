@@ -180,6 +180,18 @@ class AuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_login_rejects_disallowed_origin(self):
+        """Login CSRF: a cross-site form must not be able to log the victim
+        into an attacker's account (the response SETS the refresh cookie)."""
+        make_user("new@kyc.local", User.Role.APPLICANT)
+        res = self.client.post(
+            "/api/auth/token/",
+            {"email": "new@kyc.local", "password": "Passw0rd!"},
+            HTTP_ORIGIN="https://evil.example.com",
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertNotIn("refresh_token", res.cookies)
+
     def test_refresh_allows_same_origin_on_non_standard_port(self):
         """Browsers include non-standard ports in Origin. With the port
         preserved in the Host header (nginx $http_host), the same-origin

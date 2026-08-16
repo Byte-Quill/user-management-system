@@ -85,6 +85,16 @@ class CookieTokenObtainPairView(TokenObtainPairView):
     throttle_classes = [LoginThrottle, LoginIPThrottle]
 
     def post(self, request, *args, **kwargs):
+        # Login CSRF: DRF views are csrf_exempt, and a successful login SETS
+        # the refresh cookie (SameSite never blocks setting). Without an Origin
+        # check, an attacker's auto-submitting form could silently log a victim
+        # into an attacker-controlled account and harvest their KYC uploads.
+        if not origin_allowed(request):
+            logger.warning("Login rejected: disallowed Origin %s", request.headers.get("Origin"))
+            return Response(
+                {"detail": "Cross-origin login is not allowed."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         response = super().post(request, *args, **kwargs)
         if response.status_code == status.HTTP_200_OK:
             refresh = response.data.pop("refresh", None)
