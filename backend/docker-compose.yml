@@ -35,7 +35,9 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
+      # Fail fast instead of booting with a publicly-known default key:
+      # JWTs and signed download tokens would be forgeable.
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set a strong DJANGO_SECRET_KEY (50+ random chars)}
       DJANGO_DEBUG: "false"
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
       DATABASE_URL: postgres://kyc:kyc@db:5432/kyc

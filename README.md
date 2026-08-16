@@ -307,9 +307,14 @@ The whole stack (PostgreSQL + backend + nginx) runs from open-source images:
 
 ```bash
 cd backend
+export DJANGO_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 docker compose up --build
 # open http://localhost:8080
 ```
+
+- Compose refuses to start without a strong `DJANGO_SECRET_KEY` (50+ chars):
+  JWTs and signed download tokens are derived from it, so a known default
+  would make them forgeable.
 
 - nginx serves the SPA and proxies `/api` + `/media` to the backend, so the
   deployment is same-origin: no CORS configuration needed.

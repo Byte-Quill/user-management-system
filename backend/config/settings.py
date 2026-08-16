@@ -13,13 +13,23 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 _BUILD_TIME_SENTINEL = "django-insecure-build-time-only-key-not-for-production"
+_KNOWN_WEAK_SECRETS = {
+    _BUILD_TIME_SENTINEL,
+    "change-me-in-production",
+    "change-me",
+    "secret",
+    "django-insecure",
+}
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY") or _BUILD_TIME_SENTINEL
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 
-if not DEBUG and SECRET_KEY == _BUILD_TIME_SENTINEL:
+if not DEBUG and (
+    SECRET_KEY in _KNOWN_WEAK_SECRETS or len(SECRET_KEY) < 50
+):
     raise RuntimeError(
-        "DJANGO_SECRET_KEY must be set when DJANGO_DEBUG=false. "
-        "Refusing to start with the insecure build-time fallback."
+        "DJANGO_SECRET_KEY must be a strong, unique value (50+ chars) when "
+        "DJANGO_DEBUG=false. Refusing to start with a known-weak or short key: "
+        "JWTs and signed download tokens would be forgeable."
     )
 ALLOWED_HOSTS = [
     host.strip()
