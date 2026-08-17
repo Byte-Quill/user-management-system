@@ -179,6 +179,30 @@ Google accounts are always created as `applicant`; the ID token must carry a
 verified email, and inactive users are rejected. The endpoint is
 Origin-checked (login-CSRF) and per-IP throttled like password login.
 
+### Email verification & password reset (Resend)
+
+Signup is **hard-verified**: registration emails a 6-digit OTP (via the
+Resend HTTP API, `kyc/email.py`) and password login returns `403` with
+`code: email_not_verified` until the user confirms it at
+`POST /api/auth/verify-email/`. Users who existed before this feature shipped
+were grandfathered as verified by migration 0010; Google users are verified
+by definition (Google proved ownership), and staff can verify manually in the
+admin. Forgot-password (`/api/auth/password-reset/request/` + `/confirm/`)
+works for any account — including Google-only users setting their first
+password — and confirming a reset also marks the email verified (the code
+arrived in the account's inbox).
+
+OTP security: codes come from `secrets`, are stored only as SHA-256 hashes,
+expire after 10 minutes, allow 5 attempts, are single-use, and issuing a new
+code invalidates the previous one. Request/resend endpoints always return a
+generic 200 (no account enumeration) and are throttled per email+IP (5/hour)
+with a 60-second resend cooldown.
+
+Set `RESEND_API_KEY` and a verified `DEFAULT_FROM_EMAIL` in production. Note:
+with an *unverified* domain Resend only delivers from `onboarding@resend.dev`
+to the account owner's own inbox — verify a domain first. Accepted risk: a
+password reset does not revoke already-issued JWTs (access 1h / refresh 7d).
+
 ### Rate limiting
 
 **Edge layer (nginx)** — drops floods before they reach Django:
@@ -200,6 +224,8 @@ across workers; throttled responses return `429` with a `Retry-After` header:
 | login      | 10/10 min  | email + IP          | `POST /api/auth/token/`            |
 | `login_ip` | 60/hour    | IP                  | `POST /api/auth/token/` (all emails) |
 | `google_login` | 60/hour | IP                 | `POST /api/auth/google/`           |
+| otp request | 5/hour    | email + IP          | `POST /api/auth/verify-email/resend/`, `/api/auth/password-reset/request/` |
+| `otp_verify` | 10/hour  | IP                  | `POST /api/auth/verify-email/`, `/api/auth/password-reset/confirm/` |
 | `download` | 300/hour   | IP                  | `GET /api/documents/{id}/download/` |
 | `submit`   | 10/hour    | user                | `POST /api/applications/{id}/submit/` |
 | `documents`| 30/hour    | user                | `POST /api/applications/{id}/documents/` |
@@ -217,7 +243,11 @@ the `Retry-After` wait time when it receives a 429.
 
 | Method | Endpoint                                     | Auth | Role                          | Description                          |
 | ------ | -------------------------------------------- | ---- | ----------------------------- | ------------------------------------ |
-| POST   | `/api/auth/register/`                        | ❌   | —                             | Register applicant (names, email, phone, gender) |
+| POST   | `/api/auth/register/`                        | ❌   | —                             | Register applicant (names, email, phone, gender); emails a verification OTP |
+| POST   | `/api/auth/verify-email/`                    | ❌   | —                             | Confirm signup OTP → unlocks login   |
+| POST   | `/api/auth/verify-email/resend/`             | ❌   | —                             | Resend signup OTP (60s cooldown; generic 200) |
+| POST   | `/api/auth/password-reset/request/`          | ❌   | —                             | Email a password-reset OTP (generic 200) |
+| POST   | `/api/auth/password-reset/confirm/`          | ❌   | —                             | Consume reset OTP → set new password |
 | POST   | `/api/auth/token/`                           | ❌   | —                             | Login (email **or phone**) → access token + refresh cookie |
 | POST   | `/api/auth/google/`                          | ❌   | —                             | Google Sign-In → same JWT session    |
 | POST   | `/api/auth/token/refresh/`                   | ❌   | —                             | Rotate refresh cookie → new access   |
@@ -249,8 +279,10 @@ can be downloaded without the JWT (served as attachments, see above).
 | Route               | Page                    | Purpose                          |
 | ------------------- | ----------------------- | -------------------------------- |
 | `/`                 | `DashboardPage`         | Role-based overview              |
-| `/login`            | `LoginPage`             | Email/phone + password login     |
+| `/login`            | `LoginPage`             | Email/phone + password login, forgot-password link |
 | `/register`         | `RegisterPage`          | Registration (names, email, phone, gender, Google) |
+| `/verify-email`     | `VerifyEmailPage`       | Confirm the signup OTP (resend w/ cooldown) |
+| `/forgot-password`  | `ForgotPasswordPage`    | Email → OTP → new password wizard |
 | `/applications/new` | `ApplicationFormPage`   | Create/edit application          |
 | `/applications/:id` | `ApplicationDetailPage` | View, upload docs, submit        |
 | `/review`           | `ReviewQueuePage`       | Reviewer queue                   |
@@ -274,6 +306,9 @@ can be downloaded without the JWT (served as attachments, see above).
 | `DJANGO_NUM_PROXIES`          | ❌       | Proxy hops in front of gunicorn for IP-keyed rate limits (default `1` = nginx) |
 | `CUSTOM_DOMAIN`               | ❌       | Optional extra CORS origin                     |
 | `GOOGLE_CLIENT_ID`            | ❌       | Google OAuth client ID; enables Google Sign-In (unset = disabled) |
+| `RESEND_API_KEY`              | ✅ prod  | Resend API key for transactional email (signup/reset OTPs); unset = console backend in DEBUG only |
+| `DEFAULT_FROM_EMAIL`          | ❌       | Verified sender address, e.g. `Login Portal <noreply@yourdomain.com>` |
+| `EMAIL_BACKEND`               | ❌       | Override the Django email backend (default: Resend in prod, console in DEBUG) |
 
 Documents are stored under `media/documents/` (mount a persistent volume at
 `/app/media` in production) and served through the signed download endpoint.
@@ -326,7 +361,7 @@ npm run dev                         # http://localhost:5173
 
 ```bash
 cd backend
-python manage.py test kyc           # 52 tests: auth, Google Sign-In, flow, uploads, downloads, permissions, admin
+python manage.py test kyc           # 71 tests: auth, email OTP, Google Sign-In, flow, uploads, downloads, permissions, admin
 ```
 
 Security posture and audit history: [docs/security-audit-2026-08-16.md](docs/security-audit-2026-08-16.md).
