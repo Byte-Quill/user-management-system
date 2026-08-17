@@ -34,8 +34,7 @@ class Command(BaseCommand):
                 "role": User.Role.ADMIN,
                 "is_staff": True,
                 "is_superuser": True,
-                # Seeded accounts are trusted local-dev fixtures; skip the
-                # email-OTP gate so they can log in without a mail server.
+                # Trusted local-dev fixtures: skip the email-OTP gate.
                 "email_verified": True,
             },
         )

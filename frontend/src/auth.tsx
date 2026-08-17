@@ -21,9 +21,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        // Access token lives in memory, so a page reload loses it. Ask the
-        // backend for a fresh one using the HttpOnly refresh cookie; 401
-        // just means "logged out".
+        // Access tokens live in memory, so a reload loses them. Ask the
+        // backend for a fresh one via the HttpOnly refresh cookie.
         const refreshed = await api.refreshAccess();
         if (refreshed) {
           setUser(await api.fetchMe());
@@ -45,8 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setUser(await api.fetchMe());
     } catch (err) {
-      // Token issued but profile fetch failed: don't leave a half-session
-      // (token set, user null). Clear and let the page surface the error.
+      // Token issued but profile fetch failed: don't leave a half-session.
       api.clearTokens();
       throw err;
     }

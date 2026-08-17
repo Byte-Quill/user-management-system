@@ -4,9 +4,8 @@ import type { ApplicationPayload } from "./types";
 import { isDisposableEmail } from "./disposableEmails";
 
 /**
- * Client-side validators mirroring the backend rules (kyc/models.py field
- * limits, config/settings.py upload limits, DRF serializer checks) so users
- * get immediate feedback. The server remains the source of truth.
+ * Client-side validators mirroring the backend rules so users get immediate
+ * feedback. The server remains the source of truth.
  */
 
 export type FieldErrors<T extends string = string> = Partial<Record<T, string>>;
@@ -20,8 +19,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NAME_RE = /^(?:[^\W\d_]|[ \-'.])+$/u;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Small subset of Django's CommonPasswordValidator list — catches the most
-// frequent choices without bundling the full ~1000-entry dataset.
+// Small subset of Django's CommonPasswordValidator list.
 const COMMON_PASSWORDS = new Set([
   "password", "password1", "123456", "1234567", "12345678", "123456789",
   "1234567890", "12345", "qwerty", "qwerty123", "abc123", "iloveyou",

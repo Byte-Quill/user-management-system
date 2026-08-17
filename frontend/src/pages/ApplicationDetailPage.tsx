@@ -74,17 +74,14 @@ export default function ApplicationDetailPage() {
     load();
   }, [load]);
 
-  // Fetch audit page 1 whenever the application (id) changes.
+  // Fetch page 1 on load and on id change.
   useEffect(() => {
     setAuditPage(1);
     loadAudit(1);
   }, [loadAudit]);
 
-  // Fetch when the user paginates to a non-first page. Page 1 is fetched by
-  // the effect above (on load and on id change), so skip it here. `loadAudit`
-  // is intentionally not a dependency: this effect must re-run only when the
-  // user changes the page, never when loadAudit's identity changes with `id`
-  // (that would re-fetch a stale page right after the reset above).
+  // Fetch other pages on user pagination only; loadAudit is intentionally
+  // not a dependency so this never re-runs when its identity changes.
   useEffect(() => {
     if (auditPage === 1) return;
     loadAudit(auditPage);
@@ -95,8 +92,7 @@ export default function ApplicationDetailPage() {
   if (!app) return <p className="text-slate-500">Loading…</p>;
 
   const editable = app.status === "draft" || app.status === "resubmission_requested";
-  // Compare by applicant ID, not email: phone-only accounts have a null
-  // email, so an email comparison would mis-match (or match everyone).
+  // Compare by applicant ID, not email: phone-only accounts have null email.
   const isOwner = user?.id === app.applicant_id;
 
   const upload = async () => {

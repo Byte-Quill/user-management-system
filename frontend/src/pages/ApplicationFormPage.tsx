@@ -31,9 +31,8 @@ const EMPTY: ApplicationPayload = {
 export default function ApplicationFormPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  // Pre-fill what registration already collected (name, phone, and the
-  // optional DOB/nationality/address) so the applicant does not re-type
-  // identity data.
+  // Pre-fill what registration already collected so the applicant does not
+  // re-type identity data.
   const [form, setForm] = useState<ApplicationPayload>(() => ({
     ...EMPTY,
     full_name: user

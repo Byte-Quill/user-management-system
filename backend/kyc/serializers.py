@@ -15,29 +15,23 @@ from .models import AuditLog, Document, KYCApplication, generate_user_id
 
 User = get_user_model()
 
-# Mirrors the SPA's validation.ts so the API is the source of truth:
-# direct API clients cannot bypass the business rules.
+# Mirrors the SPA's validation.ts so the API is the source of truth.
 DOB_MIN = date(1900, 1, 1)
 
-# Person names: Unicode letters plus spaces, hyphens, apostrophes, periods
-# ("O'Brien", "Anne-Marie", "M. K. Gandhi"). Digits and other symbols rejected.
+# Unicode letters plus spaces, hyphens, apostrophes, periods ("O'Brien").
 NAME_CHARS_RE = re.compile(r"^(?:[^\W\d_]|[ \-'.])+$", re.UNICODE)
 
-# Phone numbers are validated and normalised with libphonenumber (the
-# ``phonenumbers`` package) — the same metadata the SPA's country-code picker
-# uses, so client and server agree on what counts as a valid number. Input in
-# national format (no leading '+') is interpreted against this default region;
-# E164 input carries its own country code, so the region is only a fallback.
+# Phone numbers validated/normalised with libphonenumber, the same metadata
+# the SPA's country-code picker uses.
 DEFAULT_PHONE_REGION = "IN"
 
 
 def normalize_phone(value: str) -> str:
     """Canonical E164 form (e.g. "+919876543210") via libphonenumber.
 
-    Storing one canonical form is what makes the unique constraint actually
-    catch duplicates entered as "+91 98765 43210" vs "9876543210" vs
-    "(98765) 432-10". Raises ``ValueError`` when the input is not a valid
-    number for the default region.
+    One canonical form is what makes the unique constraint catch duplicate
+    numbers entered in different formats. Raises ``ValueError`` for invalid
+    input.
     """
     try:
         parsed = phonenumbers.parse(value.strip(), DEFAULT_PHONE_REGION)
@@ -51,10 +45,8 @@ def normalize_phone(value: str) -> str:
 def legacy_phone_key(value: str) -> str:
     """Pre-libphonenumber canonical form, kept for backwards-compatible lookups.
 
-    Rows created before the libphonenumber switch may store national-format
-    numbers as bare digits ("9876543210") rather than E164. Login still
-    resolves those so existing accounts are never locked out by the stricter
-    normalisation.
+    Rows created before the libphonenumber switch may store bare digits;
+    login still resolves those so existing accounts are never locked out.
     """
     digits = re.sub(r"\D", "", value)
     return f"+{digits}" if value.strip().startswith("+") else digits
@@ -92,26 +84,18 @@ class PasswordField(serializers.CharField):
 class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
     """JWT serializer that authenticates with email (or phone) + password.
 
-    ``TokenObtainSerializer.validate`` authenticates against
-    ``attrs[self.username_field]``; ``username_field`` points at ``email``.
-    The identifier (email or phone) is passed through unchanged and resolved
-    by ``EmailOrPhoneBackend`` against both unique columns, so phone-only
-    accounts (email IS NULL) authenticate too.
+    The identifier is passed through unchanged and resolved by
+    ``EmailOrPhoneBackend`` against both unique columns.
     """
 
     username_field = "email"
 
     def validate(self, attrs):
-        # The identifier (email or phone) is passed through unchanged;
-        # EmailOrPhoneBackend resolves it against both unique columns, so
-        # phone-only accounts (email IS NULL) authenticate too.
         data = super().validate(attrs)
-        # Hard email verification: the password was right, but the account
-        # stays locked until the signup OTP proves inbox ownership. Only
-        # applies to accounts that HAVE an email — phone-only accounts have
-        # nothing to verify and sign in immediately. The specific error code
-        # is safe here — only someone who knows this account's password ever
-        # sees it, so it cannot enumerate *other* accounts.
+        # The password was right, but the account stays locked until the
+        # signup OTP proves inbox ownership (phone-only accounts have
+        # nothing to verify). Only the password holder ever sees this code,
+        # so it cannot enumerate other accounts.
         if self.user.email and not self.user.email_verified:
             raise PermissionDenied(
                 {"detail": "Verify your email to sign in.", "code": "email_not_verified"}
@@ -194,9 +178,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         # Email is optional (a phone alone is enough); normalize empty to None.
         if not value:
             return None
-        # KYC accounts must be reachable long-term, so disposable / temp-mail
-        # providers are rejected at signup. EmailField already guarantees a
-        # syntactically valid address; this adds the domain blocklist check.
+        # Disposable / temp-mail providers are rejected at signup so KYC
+        # accounts stay reachable long-term.
         if is_disposable_email(value):
             raise serializers.ValidationError(
                 "Disposable or temporary email addresses are not allowed. "
@@ -234,9 +217,8 @@ class RegisterSerializer(serializers.ModelSerializer):
             normalized = normalize_phone(trimmed)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc)) from exc
-        # Explicitly declared fields do not receive the ModelSerializer's
-        # UniqueValidator, so enforce uniqueness here — otherwise a duplicate
-        # hits the DB constraint and surfaces as a 500 instead of a 400.
+        # Explicitly declared fields skip the ModelSerializer's UniqueValidator;
+        # enforce uniqueness here or duplicates 500 on the DB constraint.
         if User.objects.filter(phone=normalized).exists():
             raise serializers.ValidationError("This phone number is already registered.")
         return normalized
@@ -320,8 +302,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "uploaded_at")
 
     def get_file(self, obj):
-        # List serialization (review queue, dashboard) only needs metadata —
-        # skip building the per-document download URL.
+        # List serialization only needs metadata — skip the download URL.
         if not self.context.get("include_document_url", True):
             return None
         if not obj.file:
@@ -329,9 +310,8 @@ class DocumentSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not request:
             return None
-        # Time-limited signed URL served by our own download view: the token
-        # is only issued to users who already passed the permission checks,
-        # so the browser can open the file in a new tab without the JWT.
+        # Time-limited signed URL served by our own download view, so the
+        # browser can open the file in a new tab without the JWT.
         from .models import document_download_token
 
         url = f"/api/documents/{obj.id}/download/?token={document_download_token(obj.id)}"

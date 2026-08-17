@@ -66,8 +66,8 @@ const FIELD_VALIDATORS: Record<FieldKey, (form: RegisterForm) => string | null> 
   first_name: (f) => validateName(f.first_name, "First name"),
   middle_name: (f) => validateName(f.middle_name, "Middle name", false),
   last_name: (f) => validateName(f.last_name, "Last name"),
-  // Email and phone are each optional; the at-least-one rule is checked in
-  // computeStepErrors. Empty values skip their own validator.
+  // Email and phone are each optional; empty values skip their validator.
+  // The at-least-one rule is enforced in computeStepErrors.
   email: (f) => (f.email.trim() ? validateRegistrationEmail(f.email) : null),
   phone: (f) => (f.phone.trim() ? validateE164Phone(f.phone) : null),
   gender: (f) => validateGender(f.gender),
@@ -146,18 +146,15 @@ export default function RegisterPage() {
     return errors;
   };
 
-  // Per-step validity for the current form — drives the ✓ indicators and
-  // gates the register action: "Create account" only appears once every
-  // required field across all steps is filled.
+  // Per-step validity for the current form: drives the ✓ indicators and
+  // gates "Create account" until every step passes.
   const stepErrors = STEPS.map((_s, i) => computeStepErrors(i));
   const firstInvalidStep = stepErrors.findIndex(
     (errors) => Object.keys(errors).length > 0,
   );
   const canRegister = firstInvalidStep === -1;
 
-  /** Jump to any step from the indicator — navigation is free in both
-   *  directions, even with empty fields; requirements are only enforced
-   *  when creating the account. */
+  /** Jump to any step — navigation is free; only account creation is gated. */
   const goToStep = (target: number) => {
     if (busy || target === step) return;
     setError("");
@@ -174,8 +171,7 @@ export default function RegisterPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
-    // Multi-step: Enter/submit advances freely until the final step —
-    // navigation never requires input; only creating the account does.
+    // Enter/submit advances freely until the final step.
     if (step < STEPS.length - 1) {
       setStep(step + 1);
       return;
@@ -210,17 +206,15 @@ export default function RegisterPage() {
         country: form.country.trim() || undefined,
       });
       if (email) {
-        // Hard email verification: no auto-login — the user must confirm the
-        // OTP that was just emailed before password login works.
+        // No auto-login: the user must confirm the emailed OTP first.
         navigate("/verify-email", { state: { email } });
       } else {
         // Phone-only account: nothing to verify — go straight to sign-in.
         navigate("/login", { state: { registered: true } });
       }
     } catch (err) {
-      // Map server-side field errors (duplicate email/phone, disposable
-      // email, …) onto the wizard: inline error on the field + jump back to
-      // the step that contains it, instead of one opaque message.
+      // Map server-side field errors onto the wizard's fields and jump to
+      // the step that contains them, instead of one opaque message.
       if (err instanceof api.ApiError && err.body && typeof err.body === "object") {
         const body = err.body as Record<string, string | string[]>;
         const errors: Partial<Record<FieldKey, string>> = {};
@@ -251,7 +245,6 @@ export default function RegisterPage() {
       <div className="w-full max-w-md rounded-lg bg-white p-8 shadow">
         <h1 className="mb-6 text-center text-2xl font-bold text-slate-900">Create account</h1>
         <form onSubmit={onSubmit} className="space-y-4" noValidate>
-          {/* Step indicator + progress bar */}
           <div>
             <div className="mb-2 flex items-start justify-between">
               {STEPS.map((s, i) => {
@@ -311,7 +304,6 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Per-step hint */}
           <p className="rounded bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800">
             {STEPS[step].hint}
           </p>

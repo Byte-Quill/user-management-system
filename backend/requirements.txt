@@ -4,33 +4,26 @@ Django==6.0.8
 djangorestframework==3.17.2
 djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.9.0
-# Google Sign-In (OIDC ID-token verification + user provisioning). The
-# [socialaccount] extra pulls in requests/PyJWT/cryptography/oauthlib.
+# Google Sign-In; the [socialaccount] extra pulls in requests/PyJWT/etc.
 django-allauth==65.19.1
 requests==2.34.2
-# Transactional email (OTP codes) via the Resend HTTP API; wrapped by the
-# Django backend in kyc/email.py.
+# Transactional email (OTP codes) via the Resend HTTP API (kyc/email.py).
 resend==2.36.0
 PyJWT==2.13.0
 cryptography==50.0.0
 oauthlib==3.3.1
 cffi==2.1.1
 pycparser==3.0
-# CSP is provided by Django 6 itself (SECURE_CSP + ContentSecurityPolicyMiddleware).
 gunicorn==26.0.0
 whitenoise==6.12.0
-# PostgreSQL driver: psycopg 3 (the modern, actively maintained successor to
-# psycopg2). Django 6 prefers it when both are importable. The [binary] extra
-# ships its own libpq, so no system build deps are needed.
+# PostgreSQL driver: psycopg 3; the [binary] extra ships its own libpq.
 psycopg[binary]==3.3.4
 dj-database-url==3.1.2
 python-dotenv==1.2.2
 python-json-logger==3.3.0
-# Phone validation/normalisation (libphonenumber port) — the same metadata the
-# SPA's country-code picker uses, so client and server agree on validity.
+# Phone validation/normalisation (libphonenumber port), mirroring the SPA.
 phonenumbers==9.0.37
-# Community-maintained disposable/burner email domain blocklist (~8k domains),
-# replacing the old hand-curated snapshot. Bump to pick up new providers.
+# Community-maintained disposable/burner email blocklist. Bump to pick up new
+# providers.
 disposable-email-domains==0.0.237
-# Caching/throttling uses Django's database cache backend (Postgres-backed);
-# no Redis service or client is required.
+# Caching/throttling uses Django's database cache backend (Postgres-backed).

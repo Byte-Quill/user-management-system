@@ -4,10 +4,9 @@ body {
   @apply bg-slate-100 text-slate-900 antialiased;
 }
 
-/* PhoneInputField: the selected-country indicator shows flag + calling code,
-   so widen the icon box the library stylesheet sizes for a bare flag.
-   Higher specificity than react-phone-number-input/style.css, which Vite may
-   inject after this file (lazy chunk). */
+/* PhoneInputField shows flag + calling code, so widen the icon box the
+   library stylesheet sizes for a bare flag (higher specificity needed: Vite
+   may inject the library CSS after this file). */
 .PhoneInput .PhoneInputCountryIcon {
   width: auto;
   height: auto;

@@ -1,19 +1,12 @@
 """Django email backend that sends through the Resend HTTP API.
 
-Why a custom backend instead of Resend's SMTP relay: the HTTP API is faster
-(no SMTP handshake), works where outbound port 25/587 is blocked, and the
-official SDK gives typed errors. The backend implements Django's standard
-``BaseEmailBackend`` interface, so ``django.core.mail.send_mail`` and the
-test runner's automatic locmem swap work unchanged — tests never touch the
-network.
+The HTTP API is faster than SMTP (no handshake, port 25/587 not needed). The
+backend implements ``BaseEmailBackend``, so ``send_mail`` and the test
+runner's automatic locmem swap work unchanged — tests never touch the network.
 
-Configuration (settings / env):
-  RESEND_API_KEY      API key from resend.com (required in production).
-  DEFAULT_FROM_EMAIL  Verified sender, e.g. "Login Portal <noreply@yourdomain.com>".
-
-Note: with an *unverified* domain Resend only allows sending from
-``onboarding@resend.dev`` to the account owner's own inbox — verify a domain
-before real production sending.
+Configuration: RESEND_API_KEY and DEFAULT_FROM_EMAIL env vars. With an
+*unverified* domain Resend only allows sending from ``onboarding@resend.dev``
+to the account owner's own inbox.
 """
 import logging
 
@@ -35,15 +28,15 @@ class ResendEmailBackend(BaseEmailBackend):
         super().__init__(fail_silently=fail_silently)
         self.api_key = getattr(settings, "RESEND_API_KEY", "")
         if not self.api_key and not fail_silently:
-            # Surface misconfiguration loudly at first send, not as a vague
+            # Fail loudly on misconfiguration at first send, not as a vague
             # 401 from the API.
             raise RuntimeError("RESEND_API_KEY is not configured.")
 
     def send_messages(self, email_messages):
         sent = 0
-        # Set the key per call (not in __init__): the SDK reads the
-        # module-level value at request time, and gunicorn workers are
-        # threaded — a per-instance attribute avoids cross-thread races.
+        # Set the key per call: gunicorn workers are threaded and the SDK
+        # reads a module-level value at request time, so a per-instance
+        # attribute avoids cross-thread races.
         resend.api_key = self.api_key
         for message in email_messages:
             try:

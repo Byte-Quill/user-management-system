@@ -5,11 +5,10 @@ import { Navigate, Route, Routes } from "react-router";
 import { AuthProvider, useAuth } from "./auth";
 import Layout from "./components/Layout";
 
-// Google OAuth client ID (from Google Cloud Console). Empty when Google
-// Sign-In is not configured; the provider and button are then skipped.
+// Google OAuth client ID; empty when Google Sign-In is not configured.
 export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 
-// Route-level code splitting: pages load on demand instead of one big bundle.
+// Route-level code splitting: pages load on demand.
 const ApplicationDetailPage = lazy(() => import("./pages/ApplicationDetailPage"));
 const ApplicationFormPage = lazy(() => import("./pages/ApplicationFormPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
@@ -81,7 +80,7 @@ export default function App() {
     </AuthProvider>
   );
 
-  // Only mount the Google provider when a client ID is configured; otherwise
+  // Only mount the provider when a client ID is configured; otherwise
   // GoogleOAuthProvider would throw on an empty clientId.
   if (!GOOGLE_CLIENT_ID) {
     return app;

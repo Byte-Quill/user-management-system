@@ -3,16 +3,14 @@
 #   cd backend && docker compose up --build
 #
 # Then open http://localhost:8080 (SPA + API on the same origin, so no CORS
-# and no VITE_API_URL needed). Documents live in the `media_data` volume.
+# and no VITE_API_URL needed).
 #
 # Production notes:
-#   - Set a strong DJANGO_SECRET_KEY (never ship the default).
-#   - Set POSTGRES_PASSWORD (required; no default).
+#   - Set a strong DJANGO_SECRET_KEY and POSTGRES_PASSWORD (no defaults).
 #   - This base stack is PLAIN HTTP and binds to 127.0.0.1 only. Anything
 #     beyond localhost must use the TLS profile (docker-compose.tls.yml),
 #     which adds a Caddy edge and switches Django to HTTPS mode.
-#   - Back up Postgres (docker compose exec db pg_dump -U kyc kyc > backup.sql)
-#     and the media_data volume.
+#   - Back up Postgres and the media_data volume.
 
 services:
   db:
@@ -33,28 +31,25 @@ services:
     mem_limit: 512m
 
   backend:
-    # This compose file lives in backend/, so the build context is "." here
+    # This compose file lives in backend/, so build contexts are "." here
     # and "../frontend" for the SPA image.
     build: .
     restart: unless-stopped
     environment:
-      # Fail fast instead of booting with a publicly-known default key:
-      # JWTs and signed download tokens would be forgeable.
+      # Fail fast instead of booting with a publicly-known default key.
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set a strong DJANGO_SECRET_KEY (50+ random chars)}
       DJANGO_DEBUG: "false"
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
       DATABASE_URL: postgres://kyc:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD (strong random value)}@db:5432/kyc
       # Plain HTTP behind nginx: Secure cookies/HSTS/redirects would break.
       DJANGO_SECURE_SSL_REDIRECT: "false"
-      # Same-origin deployment: no cross-origin requests, so no CORS origins
-      # are required (the refresh cookie is same-site).
+      # Same-origin deployment: the refresh cookie is same-site, so no CORS.
       CORS_ALLOWED_ORIGINS: ""
-      # Google Sign-In (optional): OAuth "Web application" client ID from
-      # Google Cloud Console. Unset/empty disables the endpoint.
+      # Google Sign-In (optional): OAuth "Web application" client ID.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       # Transactional email (signup OTP, password reset) via Resend.
-      # Unset falls back to the console backend (DEBUG only) — set both for
-      # real delivery. Verify a sending domain in Resend first.
+      # Unset falls back to the console backend (DEBUG only); verify a
+      # sending domain in Resend first.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Login Portal <onboarding@resend.dev>}
     volumes:
@@ -63,7 +58,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      # /readyz checks the DB; urllib raises on the 503 it returns when down.
+      # /readyz returns 503 when the DB is down; urllib raises on it.
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
       interval: 10s
       timeout: 5s
@@ -78,22 +73,19 @@ services:
     build:
       context: ../frontend
       args:
-        # Baked into the SPA bundle at build time; must match the backend's
-        # GOOGLE_CLIENT_ID. Empty disables the Google button.
+        # Must match the backend's GOOGLE_CLIENT_ID; empty disables the button.
         VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     restart: unless-stopped
     environment:
-      # nginx.conf is a template: XFP renders the X-Forwarded-Proto value
-      # sent to the backend. nginx is the edge here, so it is our own scheme.
+      # nginx.conf is a template: XFP renders the X-Forwarded-Proto value sent
+      # to the backend. nginx is the edge here, so it is our own scheme.
       XFP: "$$scheme"
       # Only substitute XFP; leave nginx's own $variables untouched.
       NGINX_ENVSUBST_FILTER: XFP
     ports:
-      # Loopback only: this stack is plain HTTP (no Secure cookies/HSTS),
-      # so exposing it on all interfaces would put cleartext session cookies
-      # and KYC PII on the network. Remote access goes through the TLS
-      # profile, which binds this container to 127.0.0.1 as well and puts
-      # Caddy on 80/443 instead.
+      # Loopback only: this stack is plain HTTP (no Secure cookies/HSTS), so
+      # exposing it on all interfaces would put cleartext session cookies and
+      # KYC PII on the network. Remote access goes through the TLS profile.
       - "127.0.0.1:8080:80"
     depends_on:
       backend:

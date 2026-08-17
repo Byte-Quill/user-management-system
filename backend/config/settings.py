@@ -51,9 +51,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    # django-allauth: Google Sign-In (OIDC ID-token verification + user
-    # provisioning). `sites` is required by allauth.socialaccount
-    # (SocialApp.sites M2M).
+    # `sites` is required by allauth.socialaccount (SocialApp.sites M2M).
     "django.contrib.sites",
     "allauth",
     "allauth.account",
@@ -74,12 +72,10 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    # Required by django-allauth; sets up the per-request allauth context.
+    # Sets up the per-request allauth context; near the bottom per Django docs.
     "allauth.account.middleware.AccountMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    # Django 6's built-in CSP middleware (configured via SECURE_CSP below).
-    # Docs recommend placing it near the bottom of the stack.
     "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "kyc.middleware.RequestIDMiddleware",
 ]
@@ -104,9 +100,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# Database: PostgreSQL via DATABASE_URL (any instance: self-hosted,
-# docker-compose, or managed). Example:
-#   postgres://kyc:kyc@localhost:5432/kyc
+# PostgreSQL only (any instance).
 if os.environ.get("DATABASE_URL", "").startswith("sqlite"):
     raise RuntimeError(
         "SQLite is not supported. Point DATABASE_URL at PostgreSQL, e.g. "
@@ -119,16 +113,7 @@ DATABASES = {
     )
 }
 
-# Rate-limit counters and the document-URL cache. The database cache backend
-# keeps everything in the Postgres we already run: shared across all gunicorn
-# workers, survives restarts, and needs no extra service or dependency.
-# kyc.cache.LightweightDatabaseCache is a drop-in optimisation of Django's
-# DatabaseCache: it replaces the stock backend's per-write SELECT COUNT(*)
-# full-table scan with a single indexed upsert, and periodically sweeps
-# expired rows (the stock backend only culls lazily, so its table grows
-# without bound). The JWT blacklist lives in Postgres tables via the
-# token_blacklist app, not in the cache. If load ever demands a real KV
-# store, swap BACKEND/LOCATION to Valkey (BSD-3, Redis-protocol compatible).
+# Postgres-backed cache shared across workers; no extra service needed.
 CACHES = {
     "default": {
         "BACKEND": "kyc.cache.LightweightDatabaseCache",
@@ -152,10 +137,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "kyc.User"
 
-# EmailOrPhoneBackend lets the login identifier (sent in the `email` field)
-# resolve against both the unique email and phone columns, so phone-only
-# accounts (email IS NULL) can authenticate. Falls back to ModelBackend for
-# admin/other flows.
+# Lets the login identifier resolve against both email and phone columns.
 AUTHENTICATION_BACKENDS = [
     "kyc.backends.EmailOrPhoneBackend",
     "django.contrib.auth.backends.ModelBackend",
@@ -170,9 +152,7 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
-    # Global safety-net throttles applied to every DRF view. Views with
-    # stricter rules override throttle_classes (login, register) or add a
-    # scoped write throttle (submit/documents/review in the viewset).
+    # Safety-net throttles; stricter views override these.
     "DEFAULT_THROTTLE_CLASSES": (
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -189,22 +169,17 @@ REST_FRAMEWORK = {
         "documents": "30/hour",
         "review": "60/hour",
     },
-    # Adds a Retry-After header to 429 responses (RFC 6585) so clients can
-    # schedule a retry instead of hammering a still-throttled endpoint.
+    # Adds a Retry-After header to 429 responses (RFC 6585).
     "EXCEPTION_HANDLER": "kyc.access.throttled_exception_handler",
-    # One proxy hop in the compose deployment (nginx -> gunicorn): trust the
-    # last X-Forwarded-For entry as the client IP for IP-keyed throttles.
-    # Raise DJANGO_NUM_PROXIES when deploying behind an extra load balancer.
+    # Trusted proxy hops; raise when behind an extra load balancer.
     "NUM_PROXIES": int(os.environ.get("DJANGO_NUM_PROXIES", "1")),
 }
 
-# Fixed window for the per-credential login throttle (kyc.access.LoginThrottle).
+# Fixed window for the per-credential login throttle.
 LOGIN_THROTTLE_MAX_ATTEMPTS = 10
 LOGIN_THROTTLE_WINDOW_SECONDS = 10 * 60
 
-# Fixed window for the per-(email + IP) OTP request throttle
-# (kyc.access.OTPRequestThrottle): bounds email-bombing of one inbox and
-# rotation across inboxes from one IP.
+# Fixed window for the per-(email + IP) OTP request throttle.
 OTP_REQUEST_MAX = 5
 OTP_REQUEST_WINDOW_SECONDS = 60 * 60
 
@@ -215,11 +190,7 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
 }
 
-# --- Email (Resend) ---------------------------------------------------------
-# OTP codes (signup verification, password reset) are delivered through the
-# Resend HTTP API via a custom Django backend (kyc/email.py). DEBUG defaults
-# to the console backend so local development works without an API key; the
-# test runner always swaps in the in-memory backend, so tests never send.
+# OTP emails via the Resend HTTP API (kyc/email.py).
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",
@@ -229,18 +200,10 @@ EMAIL_BACKEND = os.environ.get(
 )
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Login Portal <onboarding@resend.dev>")
 
-# --- django-allauth (Google Sign-In) -------------------------------------
-# allauth is used as a library: its Google provider verifies the OIDC ID
-# token (signature, issuer, audience, expiry, jti replay) and provisions or
-# links users via SocialAccount. Session tokens are still issued by SimpleJWT
-# (see GoogleAuthView / CookieTokenObtainPairView), so the refresh-token-in-
-# HttpOnly-cookie design is unchanged.
+# allauth verifies the Google ID token; SimpleJWT still issues the session.
 SITE_ID = 1
 
-# OAuth "Web application" client ID from Google Cloud Console. It is the
-# expected `aud` claim when verifying ID tokens, and the SPA's Google button
-# needs the same value (VITE_GOOGLE_CLIENT_ID). Leave unset to disable
-# Google Sign-In entirely.
+# OAuth "Web application" client ID; leave unset to disable Google Sign-In.
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
 ACCOUNT_EMAIL_VERIFICATION = "none"
@@ -248,42 +211,33 @@ ACCOUNT_EMAIL_VERIFICATION = "none"
 SOCIALACCOUNT_STORE_TOKENS = False
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
-        # Settings-backed app: no SocialApp DB row or admin setup required.
+        # Settings-backed app: no SocialApp DB row required.
         "APP": {"client_id": GOOGLE_CLIENT_ID},
         "SCOPE": ["profile", "email"],
         "AUTH_PARAMS": {"access_type": "online"},
     }
 }
 
-# Refresh token lives in an HttpOnly cookie (not localStorage) so XSS cannot
-# steal it. The access token is kept in memory on the client.
-# Set DJANGO_SECURE_SSL_REDIRECT=false when TLS terminates at a reverse proxy
-# that already forces HTTPS, or for plain-HTTP local deployments — the Secure
-# cookie flag must be off there or browsers will never send the cookie back.
+# Refresh token lives in an HttpOnly cookie so XSS cannot read it.
 SSL_ENABLED = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "true").lower() == "true"
 JWT_AUTH_COOKIE = "refresh_token"
-# The refresh cookie is only consumed by /api/auth/token/refresh/ and
-# /api/auth/logout/, so scope it to /api/ — it is never sent to the SPA,
-# static assets, or the admin, shrinking its exposure surface.
+# Only the refresh/logout endpoints consume it, so scope it to /api/.
 JWT_AUTH_COOKIE_PATH = "/api/"
 JWT_AUTH_COOKIE_MAX_AGE = int(timedelta(days=7).total_seconds())
 JWT_AUTH_COOKIE_SECURE = not DEBUG and SSL_ENABLED
-# SameSite=None (required for cross-origin cookie use) is only valid together
-# with the Secure flag; fall back to Lax when HTTPS is not in play.
+# None requires the Secure flag, so fall back to Lax without HTTPS.
 JWT_AUTH_COOKIE_SAMESITE = "None" if (not DEBUG and SSL_ENABLED) else "Lax"
 
 CORS_ALLOWED_ORIGINS: list[str] = []
 if DEBUG:
-    # Vite dev server only; production allowlists come from env/CUSTOM_DOMAIN.
+    # Vite dev server only.
     CORS_ALLOWED_ORIGINS += ["http://localhost:5173", "http://127.0.0.1:5173"]
-# Required so the refresh-token cookie can be sent cross-origin from the SPA.
+# Required so the refresh cookie can be sent cross-origin.
 CORS_ALLOW_CREDENTIALS = True
 
 if not DEBUG:
-    # Same-origin deployments (docker-compose/nginx proxy) need no CORS
-    # entries at all. For split-origin setups, list the frontend origin(s)
-    # explicitly via CORS_ALLOWED_ORIGINS / CUSTOM_DOMAIN — no vendor
-    # wildcard allowlists.
+    # Same-origin deployments need no CORS entries; split-origin setups list
+    # frontend origins explicitly via env (no vendor wildcard allowlists).
     custom_domain = os.environ.get("CUSTOM_DOMAIN")
     if custom_domain:
         CORS_ALLOWED_ORIGINS.append(f"https://{custom_domain}")
@@ -298,8 +252,6 @@ ALLOWED_UPLOAD_EXTENSIONS = [".jpg", ".jpeg", ".png", ".pdf"]
 DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE_MB * 1024 * 1024 + 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
-# --- Logging ---
-
 LOGGING: dict[str, object] = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -310,7 +262,6 @@ LOGGING: dict[str, object] = {
     },
     "formatters": {
         "json": {
-            # python-json-logger >= 3.1 moved JsonFormatter to pythonjsonlogger.json
             "()": "pythonjsonlogger.json.JsonFormatter",
             "format": "%(asctime)s %(name)s %(levelname)s %(request_id)s %(message)s",
         },

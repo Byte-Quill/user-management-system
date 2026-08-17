@@ -2,8 +2,7 @@
 
 The login form sends a single identifier in the ``email`` field. The default
 ``ModelBackend`` only matches ``USERNAME_FIELD`` (email), so phone-only
-accounts (``email IS NULL``) could never sign in. ``EmailOrPhoneBackend``
-resolves the identifier against both the unique email and phone columns.
+accounts (``email IS NULL``) could never sign in.
 """
 from django.contrib.auth import get_user_model
 from django.contrib.auth.backends import ModelBackend

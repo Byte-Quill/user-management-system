@@ -1,15 +1,9 @@
 """Email OTP issuance and verification (signup verification + password reset).
 
-Design constraints:
-  * Codes are 6 digits from ``secrets`` (uniform, CSPRNG) and stored only as
-    HMAC-SHA256 keyed with SECRET_KEY — a database leak alone never reveals
-    usable codes (plain SHA-256 would be brute-forceable offline: only 10^6
-    possible codes).
-  * Single-use with a bounded attempt counter (brute force of a 6-digit code
-    is capped at 5 guesses per OTP, i.e. 5e-6 success probability).
-  * 10-minute TTL and a 60-second resend cooldown (anti email-bombing).
-  * Issuing a new OTP invalidates any previous unconsumed one for the same
-    (user, purpose), so only the latest emailed code ever works.
+Codes are 6 digits from ``secrets``, stored only as HMAC-SHA256 keyed with
+SECRET_KEY; single-use with a bounded attempt counter, a 10-minute TTL, a
+60-second resend cooldown, and only the latest code per (user, purpose) is
+valid.
 """
 import hashlib
 import hmac
@@ -30,8 +24,7 @@ OTP_LENGTH = 6
 OTP_TTL = timedelta(minutes=10)
 OTP_MAX_ATTEMPTS = 5
 OTP_RESEND_COOLDOWN = timedelta(seconds=60)
-# Rows are purged a day after expiry: long enough to debug, short enough to
-# keep the table from growing unbounded.
+# Rows are purged a day after expiry.
 OTP_PURGE_AFTER = timedelta(days=1)
 
 
@@ -39,8 +32,7 @@ def _hash_code(code: str) -> str:
     """Keyed hash (HMAC-SHA256 with SECRET_KEY), not plain SHA-256.
 
     A 6-digit code has only 10^6 possibilities — plain SHA-256 could be
-    brute-forced offline in milliseconds from a database leak alone. Keying
-    with SECRET_KEY means a DB leak without the key reveals nothing.
+    brute-forced offline from a database leak alone.
     """
     return hmac.new(
         settings.SECRET_KEY.encode("utf-8"), code.encode("utf-8"), hashlib.sha256
@@ -53,12 +45,10 @@ def generate_code() -> str:
 
 
 def _purge_old() -> None:
-    """Delete long-expired rows, amortized across issuances.
-
-    The table is bounded to roughly a day of OTPs, so a scan is cheap; doing
-    it on every issuance would still add a write per signup/resend. Running
-    it ~1-in-10 keeps the table trimmed without a DELETE on the hot path.
-    """
+    """Delete long-expired rows, amortized across issuances (1-in-10)."""
+    if secrets.randbelow(10) != 0:
+        return
+    EmailOTP.objects.filter(expires_at__lt=timezone.now() - OTP_PURGE_AFTER).delete()
     if secrets.randbelow(10) != 0:
         return
     EmailOTP.objects.filter(expires_at__lt=timezone.now() - OTP_PURGE_AFTER).delete()
@@ -142,10 +132,8 @@ def verify_otp(user, purpose: str, code: str) -> bool:
     """Constant-time compare against the active OTP; consume on success.
 
     Wrong guesses increment the attempt counter atomically; after
-    OTP_MAX_ATTEMPTS the OTP is dead even if the right code arrives later
-    (forces a resend). Consumption is an atomic UPDATE guarded on
-    ``consumed_at IS NULL`` — if two correct submissions race, exactly one
-    wins, so single-use holds under concurrency.
+    OTP_MAX_ATTEMPTS the OTP is dead. Consumption is an atomic UPDATE guarded
+    on ``consumed_at IS NULL``, so single-use holds under concurrency.
     """
     code = (code or "").strip()
     otp = latest_active(user, purpose)

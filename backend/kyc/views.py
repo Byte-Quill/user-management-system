@@ -53,28 +53,18 @@ class RegisterView(generics.CreateAPIView):
     throttle_classes = (RegisterThrottle,)
 
     def perform_create(self, serializer):
-        # Create the user first (committed), then issue the OTP. Deliberately
-        # NOT wrapped in a transaction: issue_otp performs an external HTTP
-        # send to Resend, and holding a DB connection open across a network
-        # call would tie up a gunicorn worker on a slow/hung send. If the
-        # email fails the account simply stays unverified and the user can
-        # recover via /api/auth/verify-email/resend/ — no stranded state.
+        # Create the user, then issue the OTP — deliberately outside a
+        # transaction so the external HTTP send never holds a DB connection.
         user = serializer.save()
-        # Hard email verification: the account exists but cannot log in until
-        # the OTP emailed here is confirmed (/api/auth/verify-email/).
-        # Phone-only accounts have no email to verify, so skip the OTP — they
-        # are immediately usable (email_verified stays False but the login
-        # gate only applies to accounts that have an email).
+        # Phone-only accounts have no email to verify, so skip the OTP.
         if not user.email:
             return
         try:
             issue_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
         except Exception:
-            # The account is already committed — an email outage (Resend
-            # down, missing RESEND_API_KEY) must NOT turn signup into a 500:
-            # the client would retry and hit "email already registered" with
-            # no way forward. Stay 201; the account remains unverified and
-            # the user recovers via /api/auth/verify-email/resend/.
+            # An email outage must not turn signup into a 500 (the client
+            # would retry into "email already registered"); the account stays
+            # unverified and recovers via the resend endpoint.
             logger.exception("Failed to send verification email to %s", user.email)
 
 
@@ -112,8 +102,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         return super().get_throttles()
 
     def get_serializer_context(self):
-        # List views only need document metadata (e.g. doc count); generating
-        # signed download URLs is skipped there to keep payloads lean.
+        # List views skip signed download URLs to keep payloads lean.
         context = super().get_serializer_context()
         context["include_document_url"] = self.action != "list"
         return context
@@ -288,8 +277,7 @@ class ReviewQueueView(generics.ListAPIView):
     permission_classes = (IsAuthenticated, IsReviewer)
 
     def get_serializer_context(self):
-        # Queue rows only need document metadata (doc count); skip the
-        # per-document download-URL generation like the list views.
+        # Queue rows need document metadata only, so skip the signed URLs.
         context = super().get_serializer_context()
         context["include_document_url"] = False
         return context
@@ -303,19 +291,17 @@ class ReviewQueueView(generics.ListAPIView):
 
 
 class DocumentDownloadView(APIView):
-    """Serve a document file behind a time-limited signed token.
+    """Serve a document behind a time-limited signed token.
 
-    Tokens are issued by the API only after the ownership/role permission
-    checks pass, and are verified here statelessly with Django's
-    ``TimestampSigner`` (HMAC + timestamp, keyed by SECRET_KEY). This lets
-    browsers open the file in a new tab without sending the JWT — the same
-    UX object-storage signed URLs provided, with no external service.
+    Tokens are issued by the API only after the ownership/role checks pass,
+    and verified here statelessly via Django's ``TimestampSigner`` — letting
+    browsers open the file without sending the JWT.
     """
 
     authentication_classes = ()
     permission_classes = (AllowAny,)
-    # Unauthenticated (signed-token) endpoint: bound downloads per IP so the
-    # file-serving path cannot be scraped or used for a DoS.
+    # Unauthenticated endpoint: bound downloads per IP so the file-serving
+    # path cannot be scraped or used for DoS.
     throttle_scope = "download"
     throttle_classes = (DownloadThrottle,)
 
@@ -347,11 +333,10 @@ class DocumentDownloadView(APIView):
             or "application/octet-stream"
         )
         response = FileResponse(handle, content_type=content_type)
-        # RFC 5987 filename*: safe for non-ASCII and quote characters.
-        # attachment (not inline): documents are served on the app origin,
-        # and in-browser PDF viewers execute embedded JavaScript in that
-        # origin's context — a malicious PDF could act with the viewer's
-        # session. Forcing a download removes that XSS surface.
+        # attachment (not inline): in-browser PDF viewers execute embedded
+        # JavaScript in the app origin's context, so a malicious PDF could
+        # act with the viewer's session — forcing a download removes that
+        # XSS surface. RFC 5987 filename* for non-ASCII names.
         response["Content-Disposition"] = (
             f"attachment; filename*=UTF-8''{quote(document.original_filename)}"
         )

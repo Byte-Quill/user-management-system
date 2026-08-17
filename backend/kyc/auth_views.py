@@ -1,13 +1,10 @@
 """JWT auth views that store the refresh token in an HttpOnly cookie.
 
-Why: keeping refresh tokens in `localStorage` (the previous design) exposes
-them to any XSS payload. Access tokens stay in memory on the client; the
-long-lived refresh token lives in an HttpOnly, SameSite-protected cookie that
-JavaScript cannot read.
+Access tokens stay in memory; the long-lived refresh token lives in an
+HttpOnly, SameSite-protected cookie that JavaScript cannot read.
 
-CSRF mitigation: endpoints that authenticate via the cookie validate the
-`Origin` header against the configured CORS origins. A cross-site request from
-an attacker's page sends the cookie but fails the Origin check.
+Endpoints that authenticate via the cookie validate the Origin header, so a
+cross-site request that sends the cookie still fails the Origin check.
 """
 import logging
 import re
@@ -67,23 +64,14 @@ def _delete_refresh_cookie(response: Response) -> None:
 
 
 def origin_allowed(request) -> bool:
-    """Return True when the request Origin (if any) is safe for cookie auth.
-
-    Allowed: no Origin header (non-browser clients), same-origin requests
-    (inherently not a CSRF vector — the Origin matches the request's own
-    host), and explicitly configured CORS origins.
-    """
+    """Return True when the request Origin (if any) is safe for cookie auth."""
     origin = request.headers.get("Origin")
     if not origin:
-        # Non-browser client (curl, mobile). Not a CSRF vector.
+        # Non-browser client (curl, mobile): not a CSRF vector.
         return True
-    # Same-origin: the SPA and API share an origin (e.g. nginx proxying
-    # /api). Rebuild the request's own origin from scheme + host (incl.
-    # port, honoring SECURE_PROXY_SSL_HEADER) instead of comparing the
-    # Origin's netloc to the Host header: browsers include non-standard
-    # ports in Origin ("http://host:8080") while a proxy may forward the
-    # Host header without one, and netloc equality would then reject a
-    # legitimate same-origin refresh.
+    # Compare against scheme + host (incl. port) rather than the Host header:
+    # browsers include non-standard ports in Origin while a proxy may forward
+    # the Host header without one, which would reject same-origin refreshes.
     if origin == f"{request.scheme}://{request.get_host()}":
         return True
     allowed = set(getattr(settings, "CORS_ALLOWED_ORIGINS", []))
@@ -99,15 +87,13 @@ class CookieTokenObtainPairView(TokenObtainPairView):
     """Login: return the access token in the body, refresh token in a cookie."""
 
     serializer_class = EmailTokenObtainPairSerializer
-    # Per-credential window (email + IP) plus a per-IP cap that bounds
-    # credential stuffing across many accounts from one address.
+    # Per-credential window (email + IP) plus a per-IP cap.
     throttle_classes = [LoginThrottle, LoginIPThrottle]
 
     def post(self, request, *args, **kwargs):
-        # Login CSRF: DRF views are csrf_exempt, and a successful login SETS
-        # the refresh cookie (SameSite never blocks setting). Without an Origin
-        # check, an attacker's auto-submitting form could silently log a victim
-        # into an attacker-controlled account and harvest their KYC uploads.
+        # Login CSRF: a successful login SETS the refresh cookie, so an
+        # attacker's auto-submitting form could log a victim into an
+        # attacker-controlled account without an Origin check.
         if not origin_allowed(request):
             logger.warning("Login rejected: disallowed Origin %s", request.headers.get("Origin"))
             return Response(
@@ -137,7 +123,7 @@ class CookieTokenRefreshView(TokenRefreshView):
         # Fall back to the body token when the cookie is absent (API clients).
         refresh = request.COOKIES.get(COOKIE_NAME) or request.data.get("refresh")
         if not refresh:
-            # No token anywhere: treat as unauthenticated, not a validation error.
+            # Treat as unauthenticated, not a validation error.
             return Response(
                 {"detail": "No refresh token provided."},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -163,8 +149,8 @@ class LogoutView(APIView):
     permission_classes = (AllowAny,)
 
     def post(self, request):
-        # Logout CSRF: with SameSite=None (HTTPS deploys) a cross-site POST
-        # would send the victim's cookie and blacklist their refresh token.
+        # Logout CSRF: a cross-site POST would send the victim's cookie and
+        # blacklist their refresh token (forced logout).
         if not origin_allowed(request):
             logger.warning("Logout rejected: disallowed Origin %s", request.headers.get("Origin"))
             return Response(
@@ -185,14 +171,9 @@ class LogoutView(APIView):
 def _resolve_google_user(request, sociallogin):
     """Return the local user for a verified Google login, creating/linking as needed.
 
-    Resolution order:
-      1. An existing SocialAccount for (google, uid) -> its user.
-      2. An existing local user with the same (Google-verified) email -> link.
-         Google proved ownership of the email, so linking is safe. Refuse if
-         that user already has a *different* Google account linked.
-      3. Otherwise create a new applicant with an unusable password.
-
-    Callers retry on IntegrityError to absorb create/link races.
+    Resolution order: existing SocialAccount -> local user with the same
+    Google-verified email -> new applicant. Callers retry on IntegrityError to
+    absorb create/link races.
     """
     provider = sociallogin.account.provider
     uid = sociallogin.account.uid
@@ -218,14 +199,14 @@ def _resolve_google_user(request, sociallogin):
                 user=user, provider=provider, uid=uid,
                 extra_data=sociallogin.account.extra_data,
             )
-            # Google proved ownership of this email — that satisfies the
-            # email-verification gate even if the user never entered an OTP.
+            # Google proved ownership of the email — satisfies the
+            # email-verification gate even without an OTP.
             if not user.email_verified:
                 user.email_verified = True
                 user.save(update_fields=["email_verified"])
         return user
 
-    # New applicant. Auto-generate the public User ID (users never pick one).
+    # New applicant: auto-generate the public User ID (users never pick one).
     with transaction.atomic():
         user = User.objects.create_user(
             email=email,
@@ -266,9 +247,8 @@ class GoogleAuthView(APIView):
     throttle_classes = [GoogleLoginThrottle]
 
     def post(self, request, *args, **kwargs):
-        # Login CSRF: this endpoint SETS the refresh cookie. Without an Origin
-        # check an attacker's page could silently log a victim into an
-        # attacker-controlled account. Same policy as password login.
+        # Login CSRF: this endpoint SETS the refresh cookie, so an attacker's
+        # page could silently log a victim into an attacker-controlled account.
         if not origin_allowed(request):
             logger.warning(
                 "Google login rejected: disallowed Origin %s", request.headers.get("Origin")

@@ -4,9 +4,8 @@ const BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL.replace(/\/$/, "")}/api`
   : "/api";
 
-// Access token lives in memory ONLY (survives nothing, XSS cannot read it long-term).
-// The refresh token lives in an HttpOnly cookie set by the backend, sent
-// automatically with `credentials: "include"`.
+// Access token stays in memory only; the refresh token lives in an HttpOnly
+// cookie the backend sets, sent automatically with `credentials: "include"`.
 let accessToken: string | null = null;
 
 export function setTokens(access: string) {
@@ -49,9 +48,8 @@ async function doRefresh(): Promise<boolean> {
   return false;
 }
 
-// Single-flight guard: the backend rotates and blacklists refresh tokens, so
-// two concurrent refresh calls with the same token would invalidate the
-// session. All callers share one in-flight refresh promise.
+// Single-flight: the backend rotates and blacklists refresh tokens, so two
+// concurrent refreshes with the same token would invalidate the session.
 let refreshPromise: Promise<boolean> | null = null;
 
 async function refreshAccess(): Promise<boolean> {
@@ -114,14 +112,14 @@ async function request<T>(
 
   let res: Response;
   try {
+    // Offline / DNS / connection refused: surface as ApiError(0) so callers
+    // get a friendly message from errorMessage() instead of a raw TypeError.
     res = await fetch(`${BASE}${path}`, {
       ...options,
       headers,
       credentials: "include",
     });
   } catch {
-    // Offline / DNS / connection refused: surface as ApiError(0) so callers
-    // get a friendly message from errorMessage() instead of a raw TypeError.
     throw new ApiError(0, null);
   }
 

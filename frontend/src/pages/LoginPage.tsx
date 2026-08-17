@@ -55,9 +55,8 @@ export default function LoginPage() {
       if (err instanceof api.ApiError && err.status === 403) {
         const body = err.body as { code?: string } | null;
         if (body?.code === "email_not_verified") {
-          // Hard verification gate: route to the OTP page with the email
-          // prefilled. Only the password holder ever sees this, so it is
-          // not an enumeration leak.
+          // Route to the OTP page with the email prefilled. Only the
+          // password holder sees this, so it is not an enumeration leak.
           setError("Verify your email to sign in.");
           navigate("/verify-email", {
             state: { email: identifier.includes("@") ? identifier.trim() : "" },
@@ -65,8 +64,7 @@ export default function LoginPage() {
           return;
         }
       }
-      // Surface rate-limit feedback; keep auth failures generic (no user
-      // enumeration via differing error messages).
+      // Surface rate-limit feedback; keep auth failures generic otherwise.
       setError(
         err instanceof api.ApiError && err.status === 429
           ? api.errorMessage(err, "Too many attempts. Please try again later.")

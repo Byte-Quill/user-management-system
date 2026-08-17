@@ -9,8 +9,6 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.throttling import AnonRateThrottle, BaseThrottle, ScopedRateThrottle
 from rest_framework.views import exception_handler
 
-# --- Permissions -----------------------------------------------------------
-
 
 class IsReviewer(BasePermission):
     """Allow access only to reviewers/admins."""
@@ -20,38 +18,30 @@ class IsReviewer(BasePermission):
 
 
 class IsOwnerOrReviewer(BasePermission):
-    """Applicants can access their own applications; reviewers can access all (read-only)."""
+    """Applicants access their own applications; reviewers read all."""
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        # Reviewers are read-only on application resources
         if request.user.is_reviewer and request.method not in SAFE_METHODS:
             return False
         return True
 
     def has_object_permission(self, request, view, obj):
         if request.user.is_reviewer:
-            # Reviewers can only read (has_permission already blocks writes)
             return request.method in SAFE_METHODS
         return obj.applicant_id == request.user.id
 
 
-# --- Throttles -------------------------------------------------------------
-
-# Login attempts are bounded two ways: per credential (email + IP) to stop a
-# single account being stuffed, and per IP ("login_ip" scope) to stop a single
-# address rotating through many accounts. Counters live in the Postgres-backed
-# cache, so they are shared across all gunicorn workers.
-
-
+# Login attempts are bounded two ways: per credential (email + IP) and per IP
+# ("login_ip" scope). Counters live in the Postgres-backed cache, so they are
+# shared across all gunicorn workers.
 class LoginThrottle(BaseThrottle):
     """Per-credential login throttle (email + IP) to stop stuffing one account.
 
-    Keying on email alone would let an attacker distribute attempts across
-    many accounts; keying on IP alone would poison a shared proxy/NAT address
-    for everyone behind it. Using both bounds both attacks. Fixed window of
-    LOGIN_THROTTLE_MAX_ATTEMPTS per LOGIN_THROTTLE_WINDOW_SECONDS.
+    Keying on email alone lets an attacker distribute attempts across many
+    accounts; keying on IP alone poisons a shared proxy/NAT address. Fixed
+    window of LOGIN_THROTTLE_MAX_ATTEMPTS per LOGIN_THROTTLE_WINDOW_SECONDS.
     """
 
     timer = time.time
@@ -96,9 +86,8 @@ class RegisterThrottle(AnonRateThrottle):
 class GoogleLoginThrottle(AnonRateThrottle):
     """Per-IP cap on Google Sign-In attempts.
 
-    An attacker cannot forge a valid Google ID token, but every attempt still
-    costs an RSA signature verification plus a fetch of Google's public keys,
-    so the endpoint is bounded per IP to limit CPU/network abuse.
+    Every attempt costs an RSA signature verification plus a fetch of
+    Google's public keys, so the endpoint is bounded per IP.
     """
 
     scope = "google_login"
@@ -107,10 +96,9 @@ class GoogleLoginThrottle(AnonRateThrottle):
 class OTPRequestThrottle(BaseThrottle):
     """Per (email + IP) cap on OTP email requests (verify resend, reset request).
 
-    Email sending costs money and an unbounded endpoint would be an email
-    bomb aimed at arbitrary inboxes. Keying on email + IP bounds both a
-    single inbox being flooded and a single IP rotating through victims.
-    Fixed window of OTP_REQUEST_MAX per OTP_REQUEST_WINDOW_SECONDS.
+    Email sending costs money, so an unbounded endpoint would be an email
+    bomb aimed at arbitrary inboxes. Fixed window of OTP_REQUEST_MAX per
+    OTP_REQUEST_WINDOW_SECONDS.
     """
 
     timer = time.time
@@ -142,8 +130,7 @@ class OTPVerifyThrottle(AnonRateThrottle):
     """Per-IP cap on OTP verification attempts.
 
     The per-OTP attempt counter (5) already bounds brute force of one code;
-    this additionally bounds an attacker rotating through many OTPs/emails
-    from one address.
+    this additionally bounds rotation across many OTPs/emails from one IP.
     """
 
     scope = "otp_verify"
@@ -153,8 +140,7 @@ class DownloadThrottle(ScopedRateThrottle):
     """Per-IP cap on signed document downloads (unauthenticated endpoint).
 
     Generous enough for a reviewer opening many files, but bounds scraping /
-    DoS of the file-serving path. The download view sets
-    ``authentication_classes = ()``, so requests are always anonymous and the
+    DoS of the file-serving path; requests are always anonymous, so the
     counter is keyed by IP.
     """
 
@@ -174,15 +160,8 @@ class WriteThrottle(ScopedRateThrottle):
         return f"write-throttle:anon:{ident}:{self.scope}"
 
 
-# --- 429 handling -----------------------------------------------------------
-
-
 def throttled_exception_handler(exc, context):
-    """DRF exception handler that adds Retry-After to throttled (429) responses.
-
-    RFC 6585: clients can use the header to schedule a retry instead of
-    hammering an endpoint that is still throttled.
-    """
+    """DRF exception handler that adds Retry-After to throttled (429) responses."""
     response = exception_handler(exc, context)
     if isinstance(exc, Throttled) and response is not None and exc.wait:
         response["Retry-After"] = str(math.ceil(exc.wait))

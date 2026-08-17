@@ -8,15 +8,12 @@ header = '''/**
  * Disposable / temporary email domain blocklist.
  *
  * AUTO-GENERATED from the `disposable-email-domains` PyPI package (the same
- * community-maintained list the backend uses in `kyc/email_domains.py`).
- * Do not edit by hand — regenerate with:
- *   cd backend && .venv/bin/python scripts/gen_disposable_emails.py
+ * list the backend uses in `kyc/email_domains.py`). Do not edit by hand —
+ * regenerate with: cd backend && .venv/bin/python scripts/gen_disposable_emails.py
  *
- * Mirrors the server-side rule so users get immediate feedback during
- * registration. The backend remains the source of truth — a direct API client
- * is still stopped there.
- *
- * Matching is done on the exact domain part of the address, case-insensitively.
+ * Mirrors the server-side rule for immediate registration feedback; the
+ * backend remains the source of truth. Matching is on the exact domain part
+ * of the address, case-insensitively.
  */
 '''
 

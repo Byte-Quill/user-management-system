@@ -1,19 +1,14 @@
 """Disposable / temporary email domain filtering.
 
-Registration is the entry point to a KYC pipeline, so accounts must be tied
-to a real, lasting inbox. Disposable ("burner") email services let someone
-receive the signup OTP and then vanish, defeating both identity verification
-and any future account-recovery or audit contact.
+Accounts must be tied to a real, lasting inbox: burner providers let someone
+receive the signup OTP and then vanish, defeating identity verification and
+future recovery contact.
 
 The blocklist comes from the community-maintained ``disposable-email-domains``
-package (~8k domains, updated upstream as new burner providers appear). It is
-still fully local — no external API or network call — so the check stays fast,
-deterministic, and unaffected by third-party outages. Bump the package version
-in ``requirements.txt`` to pick up newly listed providers.
-
-The server is the source of truth: the SPA mirrors this rule in
-``frontend/src/validation.ts`` for immediate feedback, but a direct API
-client is still stopped here.
+package (~8k domains) but is still fully local — no network call — so the
+check stays fast and deterministic. Bump the package version to pick up newly
+listed providers. The server is the source of truth; the SPA mirrors this rule
+in ``frontend/src/validation.ts`` for immediate feedback.
 """
 
 from __future__ import annotations

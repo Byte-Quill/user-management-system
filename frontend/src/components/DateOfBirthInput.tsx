@@ -3,10 +3,9 @@ import { useState } from "react";
 import { Select } from "./Field";
 
 /**
- * Date-of-birth picker as three dropdowns (day / month / year). A native
- * date input forces tedious calendar paging to reach past decades; dropdowns
- * are one click per part. Emits a complete ISO date (YYYY-MM-DD) or "" while
- * any part is still unselected.
+ * Date-of-birth picker as three dropdowns: native date inputs force tedious
+ * calendar paging to reach past decades; dropdowns are one click per part.
+ * Emits a complete ISO date (YYYY-MM-DD) or "" while any part is unselected.
  */
 
 const MONTHS = [

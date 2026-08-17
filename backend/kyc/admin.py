@@ -124,5 +124,5 @@ class AuditLogAdmin(admin.ModelAdmin):
         return False
 
     def has_delete_permission(self, request, obj=None):
-        # Audit records are immutable.
+        # The audit trail is append-only.
         return False

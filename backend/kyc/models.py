@@ -12,10 +12,7 @@ from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
 
-# --- User ID generation ----------------------------------------------------
-
-# Unambiguous alphabet (no 0/O, 1/I/L) so IDs stay readable when spoken or
-# typed from a screenshot.
+# Unambiguous alphabet (no 0/O, 1/I/L) so IDs stay readable when spoken.
 USER_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 USER_ID_PREFIX = "PHIN-"
 USER_ID_RANDOM_LENGTH = 8
@@ -24,10 +21,8 @@ USER_ID_RANDOM_LENGTH = 8
 def generate_user_id() -> str:
     """Return a unique, auto-generated public User ID (e.g. PHIN-8F3K2A).
 
-    Users never choose or type a username anymore; the ID is stored in the
-    ``username`` column (kept because AbstractUser requires a USERNAME_FIELD
-    companion) and shown in the UI. Collisions are astronomically unlikely
-    (32^8 space) but are still checked and retried.
+    Stored in the ``username`` column (AbstractUser requires a USERNAME_FIELD
+    companion); collisions are checked and retried.
     """
     for _ in range(10):
         candidate = USER_ID_PREFIX + "".join(
@@ -113,7 +108,7 @@ class User(AbstractUser):
     objects = UserManager()
 
     # Optional: an account needs at least one of email/phone (enforced by
-    # RegisterSerializer.validate). Nullable so phone-only accounts can exist;
+    # RegisterSerializer.validate). Nullable so phone-only accounts exist;
     # Postgres unique constraints allow multiple NULLs.
     email = models.EmailField(null=True, blank=True, unique=True)
     role = models.CharField(
@@ -139,8 +134,8 @@ class User(AbstractUser):
     country = models.CharField(max_length=100, blank=True, default="")
     # Hard email verification: password login is refused until the user proves
     # ownership of their inbox with an OTP (see kyc/otp.py). Google users are
-    # verified by definition (Google proved ownership), and all users that
-    # existed before this field shipped were grandfathered by migration 0010.
+    # verified by definition, and older users were grandfathered by migration
+    # 0010.
     email_verified = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
@@ -158,14 +153,9 @@ class User(AbstractUser):
 class EmailOTP(models.Model):
     """One-time email codes for signup verification and password reset.
 
-    Security properties (enforced by kyc/otp.py, not just by convention):
-      * the code is stored as an HMAC-SHA256 keyed with SECRET_KEY — a DB
-        leak alone never reveals codes (6 digits = 10^6 space, trivially
-        brute-forceable offline if hashed with plain SHA-256);
-      * single-use (``consumed_at``) with a bounded attempt counter;
-      * short TTL (``expires_at``);
-      * only the latest unconsumed OTP per (user, purpose) is valid — issuing
-        a new one invalidates the previous one.
+    Security properties (enforced by kyc/otp.py): codes are stored as
+    HMAC-SHA256 keyed with SECRET_KEY, single-use with a bounded attempt
+    counter, short TTL, and only the latest OTP per (user, purpose) is valid.
     """
 
     class Purpose(models.TextChoices):
@@ -265,7 +255,7 @@ class KYCApplication(models.Model):
         return f"KYC {self.id} — {self.full_name} [{self.status}]"
 
     def submit(self):
-        # Note: callers must fetch this row via select_for_update() inside a
+        # Callers must fetch this row via select_for_update() inside a
         # transaction so concurrent submits cannot both pass the status check.
         if self.status not in (self.Status.DRAFT, self.Status.RESUBMISSION_REQUESTED):
             raise ValidationError(
@@ -277,7 +267,7 @@ class KYCApplication(models.Model):
 
     def apply_review(self, *, reviewer: User, decision: str, notes: str = ""):
         """Apply a reviewer decision and record audit metadata."""
-        # Note: callers must fetch this row via select_for_update() inside a
+        # Callers must fetch this row via select_for_update() inside a
         # transaction so two concurrent reviews cannot both pass the check.
         if self.status != self.Status.SUBMITTED:
             raise ValidationError("Application is not in a reviewable state.")
@@ -394,16 +384,11 @@ def log_action(application, actor, action, detail=""):
     )
 
 
-# Signed download tokens are HMAC'd with SECRET_KEY, so they can be verified
-# statelessly (no DB lookup, no cache) and forged only by someone who holds
-# the secret key. Tokens are issued only to users who already passed the
-# API's ownership/role permission checks; anyone holding a valid token can
-# view the file until it expires (same semantics as object-storage signed
-# URLs).
+# Signed download tokens are HMAC'd with SECRET_KEY, so they are verified
+# statelessly (no DB/cache lookup) and forgeable only by the secret holder.
 DOWNLOAD_TOKEN_SALT = "kyc.document-download"
-# Short TTL: tokens are minted on detail-view load and used immediately.
-# They travel in URLs (access logs, browser history), so keep the replay
-# window small.
+# Short TTL: tokens travel in URLs (logs, browser history), so keep the
+# replay window small.
 DOWNLOAD_TOKEN_MAX_AGE = 900
 
 

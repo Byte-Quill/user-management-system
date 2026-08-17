@@ -19,7 +19,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // Stable vendor chunks: cached once, never re-downloaded on app updates.
+        // Stable vendor chunks: cached once, never re-downloaded.
         manualChunks(id) {
           if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
             return "react";

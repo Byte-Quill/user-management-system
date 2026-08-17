@@ -23,8 +23,7 @@ from .models import AuditLog, Document, EmailOTP, KYCApplication
 
 User = get_user_model()
 
-# PBKDF2 hashing dominates the suite's runtime (every user create/login).
-# Tests never verify hashing strength, so use the fast MD5 hasher there.
+# PBKDF2 dominates runtime; tests never verify strength, so use MD5.
 FAST_PASSWORD_HASHERS = override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"]
 )
@@ -47,9 +46,8 @@ APP_PAYLOAD = {
 
 
 def make_user(email, role, password="Passw0rd!"):
-    # Fixtures represent pre-existing (grandfathered) users, so they are
-    # email-verified; fresh registrations in tests go through the API and
-    # start unverified.
+    # Fixtures are grandfathered users (email-verified); fresh API
+    # registrations start unverified.
     return User.objects.create_user(
         email=email,
         username=email.split("@")[0],
@@ -93,11 +91,9 @@ def register_payload(email, phone="+919876500001", **overrides):
 class LightweightCacheTests(TestCase):
     """Regression tests for kyc.cache.LightweightDatabaseCache.
 
-    ``add()`` is security-critical: allauth's JWT ``jti`` replay guard calls
-    it on every Google login. ``BaseDatabaseCache`` leaves ``add``/``touch``
-    abstract, so if this backend ever stops implementing them, every social
-    login crashes with NotImplementedError — and the Google tests below would
-    not catch it because they mock token verification.
+    ``add()`` is security-critical (allauth's ``jti`` replay guard calls it on
+    every Google login) but abstract on the stock backend, and the Google
+    tests below mock token verification, so it needs its own tests.
     """
 
     def setUp(self):
@@ -834,8 +830,7 @@ def _google_sociallogin(email="guser@gmail.com", uid="google-uid-1", verified=Tr
 @override_settings(GOOGLE_CLIENT_ID="test-client-id")
 @FAST_PASSWORD_HASHERS
 class GoogleAuthTests(APITestCase):
-    """Google Sign-In: the ID-token verification step is mocked (no network /
-    no Google keys in CI); provisioning, linking, and session issuance are real."""
+    """Google Sign-In with token verification mocked; provisioning/linking real."""
 
     URL = "/api/auth/google/"
 
@@ -843,8 +838,7 @@ class GoogleAuthTests(APITestCase):
         cache.clear()
 
     def _mock_verification(self, sociallogin=None, exc=None):
-        """Patch the socialaccount adapter so provider.verify_token returns our
-        fake sociallogin (or raises, simulating a bad/forged ID token)."""
+        """Patch the adapter so verify_token returns our fake sociallogin."""
         provider = mock.Mock()
         provider.verify_token.side_effect = exc if exc else lambda request, token: sociallogin
         adapter = mock.Mock()
@@ -1118,8 +1112,7 @@ class ApplicationFlowTests(APITestCase):
         res = self.client.delete(f"/api/applications/{app_id}/documents/{doc_id}/")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
-        # Non-owner gets 404: the queryset is owner-scoped, so the app is
-        # invisible to them (no existence leak).
+        # Non-owner gets 404: the queryset is owner-scoped (no existence leak).
         self.auth(self.other)
         res = self.client.delete(f"/api/applications/{app_id}/documents/{doc_id}/")
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
@@ -1138,8 +1131,8 @@ class ApplicationFlowTests(APITestCase):
             Document.objects.filter(pk=doc_id).exists(),
             False,
         )
-        # Django does not delete FileField files on model deletion; the
-        # post_delete signal must remove the PII file from disk.
+        # Django never deletes FileField files; the post_delete signal must
+        # remove the PII file from disk.
         self.assertFalse(os.path.exists(file_path))
         res = self.client.get(f"/api/applications/{app_id}/audit/")
         actions = [entry["action"] for entry in res.data["results"]]
@@ -1195,8 +1188,8 @@ class ApplicationFlowTests(APITestCase):
         res = self.client.get(doc_url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res["Content-Type"], "application/pdf")
-        # attachment (not inline): documents are served on the app origin,
-        # so in-browser PDF JavaScript would run with the viewer's session.
+        # attachment (not inline): in-browser PDF JavaScript would run with
+        # the viewer's session on the app origin.
         self.assertIn("attachment", res["Content-Disposition"])
         content = b"".join(res.streaming_content)
         self.assertTrue(content.startswith(b"%PDF-1.4"))

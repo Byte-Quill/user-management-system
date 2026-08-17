@@ -1,24 +1,16 @@
 """Lightweight database cache backend.
 
-Drop-in replacement for ``django.core.cache.backends.db.DatabaseCache`` that
-removes its two main sources of overhead:
+Drop-in replacement for ``django.core.cache.backends.db.DatabaseCache``:
+stock writes run a full-table ``SELECT COUNT(*)`` for MAX_ENTRIES culling and
+cleanup is lazy, so the table grows without bound. This backend does a single
+indexed upsert per write and sweeps expired rows at most once per process
+every ``CLEANUP_INTERVAL`` seconds.
 
-* The stock backend runs ``SELECT COUNT(*)`` over the whole cache table on
-  EVERY write (to enforce ``MAX_ENTRIES`` culling) — a full scan that gets
-  slower as the table grows — plus a SELECT and an INSERT/UPDATE. This
-  backend does a single indexed upsert instead.
-* Expired rows are only removed lazily on reads there, so the table grows
-  without bound. Here a cheap indexed ``DELETE ... WHERE expires < now``
-  runs at most once per process every ``CLEANUP_INTERVAL`` seconds.
-
-The CRUD methods (``get``/``set``/``add``/``touch``/``delete``/``clear``) are
-implemented directly; everything else (``get_many``, ``incr``, ``has_key``,
-...) is inherited from ``BaseCache`` and built on top of these. (``add`` and
-``touch`` are abstract on ``BaseCache``/``BaseDatabaseCache``, so they MUST be
-implemented here — allauth's JWT ``jti`` replay guard calls ``cache.add()`` on
-every social login.) The table schema is the one created by
-``manage.py createcachetable`` (primary key on ``cache_key``, index on
-``expires``), so switching backends requires no migration.
+The CRUD methods are implemented directly; ``get_many``/``incr``/``has_key``
+are inherited from ``BaseCache``. ``add`` and ``touch`` are abstract on the
+stock backend but MUST be implemented here — allauth's JWT ``jti`` replay
+guard calls ``cache.add()`` on every social login. The table schema is the
+one created by ``manage.py createcachetable``.
 """
 
 import base64
@@ -33,9 +25,7 @@ from django.db import DatabaseError, connections, router
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now as tz_now
 
-# At most one expired-row sweep per process per interval. The DELETE is
-# indexed on `expires` and normally affects zero rows, so it is cheap even
-# when it runs.
+# At most one expired-row sweep per process per interval.
 CLEANUP_INTERVAL = 300
 
 _last_cleanup = 0.0
@@ -43,8 +33,6 @@ _last_cleanup = 0.0
 
 class LightweightDatabaseCache(BaseDatabaseCache):
     pickle_protocol = pickle.HIGHEST_PROTOCOL
-
-    # -- helpers ---------------------------------------------------------
 
     def _connection(self, write=False):
         alias = (
@@ -89,8 +77,6 @@ class LightweightDatabaseCache(BaseDatabaseCache):
             [connection.ops.adapt_datetimefield_value(tz_now())],
         )
 
-    # -- read path -------------------------------------------------------
-
     def get(self, key, default=None, version=None):
         key = self.make_and_validate_key(key, version=version)
         connection = self._connection()
@@ -109,12 +95,9 @@ class LightweightDatabaseCache(BaseDatabaseCache):
             return default
         value, expires = row
         if self._to_datetime(expires) < tz_now():
-            # Expired: leave the row for the periodic sweep rather than
-            # paying a write on every miss.
+            # Leave expired rows for the periodic sweep.
             return default
         return self._decode(value)
-
-    # -- write path ------------------------------------------------------
 
     def set(self, key, value, timeout=DEFAULT_TIMEOUT, version=None):
         key = self.make_and_validate_key(key, version=version)
@@ -140,15 +123,13 @@ class LightweightDatabaseCache(BaseDatabaseCache):
             return False
         return True
 
-    # -- add path (set-if-absent; required by allauth's jti replay guard) --
-
     def add(self, key, value, timeout=DEFAULT_TIMEOUT, version=None):
-        """Set ``key`` only if it does not already exist (or is expired).
-        Returns True if the value was stored. Implemented as a single atomic
-        ``INSERT ... ON CONFLICT DO UPDATE ... WHERE expires < now`` so
-        concurrent callers cannot both succeed — this is what makes JWT ``jti``
-        replay protection race-free. An existing but expired row is treated as
-        absent, matching the stock backend's semantics."""
+        """Set ``key`` only if absent (or expired); True if stored.
+
+        A single atomic ``INSERT ... ON CONFLICT DO UPDATE ... WHERE expires
+        < now`` so concurrent callers cannot both succeed — this is what makes
+        JWT ``jti`` replay protection race-free.
+        """
         key = self.make_and_validate_key(key, version=version)
         timeout = self.get_backend_timeout(timeout)
         connection = self._connection(write=True)
@@ -175,12 +156,11 @@ class LightweightDatabaseCache(BaseDatabaseCache):
             return False
         return inserted
 
-    # -- touch path (extend expiry without rewriting the value) -----------
-
     def touch(self, key, timeout=DEFAULT_TIMEOUT, version=None):
-        """Update ``key``'s expiry to ``timeout``. Returns True if the key
-        exists (and was updated), False otherwise. A single indexed UPDATE —
-        no read-modify-write round trip."""
+        """Extend ``key``'s expiry; True if the key existed.
+
+        A single indexed UPDATE — no read-modify-write round trip.
+        """
         key = self.make_and_validate_key(key, version=version)
         timeout = self.get_backend_timeout(timeout)
         connection = self._connection(write=True)
@@ -195,8 +175,6 @@ class LightweightDatabaseCache(BaseDatabaseCache):
                 [exp, key],
             )
             return bool(cursor.rowcount)
-
-    # -- delete path -----------------------------------------------------
 
     def delete(self, key, version=None):
         key = self.make_and_validate_key(key, version=version)

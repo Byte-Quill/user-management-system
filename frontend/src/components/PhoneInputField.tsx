@@ -18,9 +18,8 @@ interface PhoneInputFieldProps {
 }
 
 /**
- * Country `<select/>` option labels like "India (+91)" so the calling code is
- * visible while choosing a country. Built once from the bundled English locale
- * plus libphonenumber metadata (no CDN, no runtime fetch).
+ * Country `<select/>` option labels like "India (+91)". Built once from the
+ * bundled English locale plus libphonenumber metadata (no CDN, no fetch).
  */
 const LABELS_WITH_CALLING_CODES: Record<string, string> = { ...enLabels };
 for (const country of getCountries()) {
@@ -28,10 +27,8 @@ for (const country of getCountries()) {
 }
 
 /**
- * Selected-country indicator: flag + calling code (e.g. 🇮🇳 +91). Passed via
- * the `flagComponent` prop; sizing comes from the `.PhoneInputCountryIcon`
- * overrides in index.css (the library stylesheet sizes that box for a bare
- * flag only).
+ * Selected-country indicator: flag + calling code (e.g. 🇮🇳 +91). Sizing comes
+ * from the `.PhoneInputCountryIcon` overrides in index.css.
  */
 function FlagWithCallingCode({
   country,
@@ -58,10 +55,10 @@ function FlagWithCallingCode({
 }
 
 /**
- * Phone input with a country picker (flag + calling code) powered by
- * react-phone-number-input / libphonenumber. It formats as the user types and
- * emits a canonical E.164 number ("+91…"), which matches the backend's
- * normalize_phone() canonical form. Flags are bundled inline SVGs — no CDN.
+ * Phone input with a country picker, powered by react-phone-number-input /
+ * libphonenumber. Formats as the user types and emits canonical E.164
+ * ("+91..."), matching the backend's normalize_phone(). Flags are bundled
+ * inline SVGs — no CDN.
  */
 export default function PhoneInputField({
   value,

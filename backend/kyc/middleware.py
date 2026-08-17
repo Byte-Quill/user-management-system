@@ -21,14 +21,13 @@ class RequestIDMiddleware(MiddlewareMixin):
     """Attach a request ID to each request and response for tracing."""
 
     def process_request(self, request):
-        # Prefer incoming header (e.g., from load balancer), else generate
+        # Prefer an incoming header (e.g. from a load balancer).
         request_id = request.META.get("HTTP_X_REQUEST_ID") or uuid.uuid4().hex
         request.request_id = request_id
         _local.request_id = request_id
         return None
 
     def process_response(self, request, response):
-        # Echo back so clients can correlate
         if hasattr(request, "request_id"):
             response["X-Request-ID"] = request.request_id
         _local.request_id = None
