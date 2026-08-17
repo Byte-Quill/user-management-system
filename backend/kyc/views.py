@@ -27,9 +27,11 @@ from .models import (
     DOWNLOAD_TOKEN_SALT,
     AuditLog,
     Document,
+    EmailOTP,
     KYCApplication,
     log_action,
 )
+from .otp import issue_otp
 from .serializers import (
     AuditLogSerializer,
     DocumentSerializer,
@@ -46,6 +48,15 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = (AllowAny,)
     throttle_classes = (RegisterThrottle,)
+
+    def perform_create(self, serializer):
+        # Atomic: if sending the verification email fails, the account is
+        # rolled back rather than left stranded in an unverifiable state.
+        with transaction.atomic():
+            user = serializer.save()
+            # Hard email verification: the account exists but cannot log in
+            # until the OTP emailed here is confirmed (/api/auth/verify-email/).
+            issue_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
 
 
 class MeView(generics.RetrieveAPIView):

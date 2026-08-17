@@ -1,21 +1,25 @@
 import os
+import re
 import threading
 import time
+from datetime import timedelta
 from unittest import mock
 
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.models import SocialAccount, SocialLogin
 from allauth.socialaccount.providers.oauth2.client import OAuth2Error
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, TransactionTestCase, override_settings, skipUnlessDBFeature
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.test import APIClient, APIRequestFactory, APITestCase
 
 from .access import GoogleLoginThrottle, LoginIPThrottle
-from .models import AuditLog, Document, KYCApplication
+from .models import AuditLog, Document, EmailOTP, KYCApplication
 
 User = get_user_model()
 
@@ -43,9 +47,33 @@ APP_PAYLOAD = {
 
 
 def make_user(email, role, password="Passw0rd!"):
+    # Fixtures represent pre-existing (grandfathered) users, so they are
+    # email-verified; fresh registrations in tests go through the API and
+    # start unverified.
     return User.objects.create_user(
-        email=email, username=email.split("@")[0], password=password, role=role
+        email=email,
+        username=email.split("@")[0],
+        password=password,
+        role=role,
+        email_verified=True,
     )
+
+
+OTP_CODE_RE = re.compile(r"\b(\d{6})\b")
+
+
+def last_otp_code():
+    """Extract the 6-digit code from the most recent test-outbox email."""
+    match = OTP_CODE_RE.search(mail.outbox[-1].body)
+    assert match, f"no OTP code found in email body: {mail.outbox[-1].body!r}"
+    return match.group(1)
+
+
+def verify_via_api(client, email):
+    """Complete the signup OTP flow for a freshly registered account."""
+    res = client.post("/api/auth/verify-email/", {"email": email, "code": last_otp_code()})
+    assert res.status_code == 200, res.content
+    return res
 
 
 def register_payload(email, phone="+919876500001", **overrides):
@@ -118,6 +146,15 @@ class AuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
+        # Hard verification: login is refused until the OTP is confirmed.
+        res = self.client.post(
+            "/api/auth/token/", {"email": "new@kyc.local", "password": "Str0ngPass!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data.get("code"), "email_not_verified")
+
+        verify_via_api(self.client, "new@kyc.local")
+
         res = self.client.post(
             "/api/auth/token/", {"email": "new@kyc.local", "password": "Str0ngPass!"}
         )
@@ -162,11 +199,21 @@ class AuthTests(APITestCase):
 
     def test_login_with_phone(self):
         self.client.post("/api/auth/register/", register_payload("phone@kyc.local"))
+        verify_via_api(self.client, "phone@kyc.local")
         res = self.client.post(
             "/api/auth/token/", {"email": "+91 98765 00001", "password": "Str0ngPass!"}
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("access", res.data)
+
+    def test_login_with_phone_blocked_until_verified(self):
+        """The verification gate applies to the phone-login path too."""
+        self.client.post("/api/auth/register/", register_payload("phone2@kyc.local"))
+        res = self.client.post(
+            "/api/auth/token/", {"email": "+919876500001", "password": "Str0ngPass!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data.get("code"), "email_not_verified")
 
     def test_login_with_unknown_phone_is_generic_401(self):
         res = self.client.post(
@@ -394,6 +441,211 @@ class AuthTests(APITestCase):
         # The pre-rotation token must now be rejected.
         res = self.client.post("/api/auth/token/refresh/", {"refresh": old})
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+@FAST_PASSWORD_HASHERS
+class EmailOTPTests(APITestCase):
+    """Signup verification + password reset OTP flows.
+
+    The test runner swaps EMAIL_BACKEND to locmem, so codes are read from
+    ``mail.outbox`` — no network, no Resend key needed.
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def register(self, email="otp@kyc.local", phone="+919876500001"):
+        res = self.client.post("/api/auth/register/", register_payload(email, phone=phone))
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        return res
+
+    def test_registration_sends_verification_email(self):
+        self.register()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("verification code", mail.outbox[0].body)
+        self.assertFalse(User.objects.get(email="otp@kyc.local").email_verified)
+
+    def test_verify_email_unlocks_login(self):
+        self.register()
+        res = self.client.post(
+            "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": last_otp_code()}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(User.objects.get(email="otp@kyc.local").email_verified)
+
+    def test_verify_email_rejects_wrong_or_expired_code(self):
+        self.register()
+        code = last_otp_code()
+        wrong = ("0" if code[0] != "0" else "1") * 6  # guaranteed != code
+        res = self.client.post(
+            "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": wrong}
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.register("otp2@kyc.local", phone="+919876500002")
+        code = last_otp_code()
+
+        EmailOTP.objects.filter(user__email="otp2@kyc.local").update(
+            expires_at=timezone.now() - timedelta(seconds=1)
+        )
+        res = self.client.post(
+            "/api/auth/verify-email/", {"email": "otp2@kyc.local", "code": code}
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_otp_is_single_use_and_predecessor_invalidated(self):
+        self.register()
+        first_code = last_otp_code()
+        # Resend (cooldown bypassed by clearing last_sent_at) -> new code.
+        EmailOTP.objects.filter(user__email="otp@kyc.local").update(last_sent_at=None)
+        self.client.post("/api/auth/verify-email/resend/", {"email": "otp@kyc.local"})
+        second_code = last_otp_code()
+
+        # The first code is dead once a new one is issued.
+        res = self.client.post(
+            "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": first_code}
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        res = self.client.post(
+            "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": second_code}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        # Single-use: replaying the consumed code must fail.
+        res = self.client.post(
+            "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": second_code}
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_attempt_cap_invalidates_otp(self):
+        self.register()
+        code = last_otp_code()
+        wrong = ("0" if code[0] != "0" else "1") * 6  # guaranteed != code
+        for _ in range(5):
+            self.client.post(
+                "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": wrong}
+            )
+        # Even the correct code is rejected after 5 failed attempts.
+        res = self.client.post(
+            "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": code}
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_resend_is_enumeration_safe_and_cooldown_enforced(self):
+        # Unknown email: generic 200, nothing sent.
+        res = self.client.post("/api/auth/verify-email/resend/", {"email": "ghost@kyc.local"})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(mail.outbox), 0)
+
+        self.register()
+        self.assertEqual(len(mail.outbox), 1)
+        # Immediate resend is inside the 60s cooldown: no second email.
+        res = self.client.post("/api/auth/verify-email/resend/", {"email": "otp@kyc.local"})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_resend_skips_already_verified_users(self):
+        self.register()
+        verify_via_api(self.client, "otp@kyc.local")
+        sent = len(mail.outbox)
+        self.client.post("/api/auth/verify-email/resend/", {"email": "otp@kyc.local"})
+        self.assertEqual(len(mail.outbox), sent)
+
+    def test_password_reset_flow(self):
+        user = make_user("reset@kyc.local", User.Role.APPLICANT)
+        res = self.client.post(
+            "/api/auth/password-reset/request/", {"email": "reset@kyc.local"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(mail.outbox), 1)
+
+        res = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {
+                "email": "reset@kyc.local",
+                "code": last_otp_code(),
+                "new_password": "N3wSecret!",
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("N3wSecret!"))
+
+        res = self.client.post(
+            "/api/auth/token/", {"email": "reset@kyc.local", "password": "N3wSecret!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_password_reset_request_is_enumeration_safe(self):
+        res = self.client.post(
+            "/api/auth/password-reset/request/", {"email": "ghost@kyc.local"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_password_reset_confirm_rejects_bad_code_and_weak_password(self):
+        make_user("reset2@kyc.local", User.Role.APPLICANT)
+        self.client.post("/api/auth/password-reset/request/", {"email": "reset2@kyc.local"})
+        res = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {"email": "reset2@kyc.local", "code": "123456", "new_password": "N3wSecret!"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        res = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {"email": "reset2@kyc.local", "code": last_otp_code(), "new_password": "12345678"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("new_password", res.data)
+
+    def test_password_reset_verifies_email_and_unblocks_login(self):
+        """An unverified signup whose only recovery path is the reset flow:
+        the OTP arrived in the account's inbox, so confirm also verifies."""
+        self.register()
+        self.client.post("/api/auth/password-reset/request/", {"email": "otp@kyc.local"})
+        res = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {"email": "otp@kyc.local", "code": last_otp_code(), "new_password": "N3wSecret!"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        user = User.objects.get(email="otp@kyc.local")
+        self.assertTrue(user.email_verified)
+        res = self.client.post(
+            "/api/auth/token/", {"email": "otp@kyc.local", "password": "N3wSecret!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_password_reset_works_for_google_only_accounts(self):
+        """Google users have no password; the reset flow lets them set one."""
+        user = User.objects.create_user(
+            email="google-only@kyc.local",
+            username="PHIN-GOOGLE01",
+            password=None,
+            role=User.Role.APPLICANT,
+            email_verified=True,
+        )
+        self.client.post(
+            "/api/auth/password-reset/request/", {"email": "google-only@kyc.local"}
+        )
+        res = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {
+                "email": "google-only@kyc.local",
+                "code": last_otp_code(),
+                "new_password": "N3wSecret!",
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("N3wSecret!"))
+
+    @mock.patch("kyc.access.OTPRequestThrottle.allow_request", return_value=False)
+    def test_otp_request_throttle_returns_429(self, _mock):
+        res = self.client.post(
+            "/api/auth/password-reset/request/", {"email": "otp@kyc.local"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
 def _google_sociallogin(email="guser@gmail.com", uid="google-uid-1", verified=True):
