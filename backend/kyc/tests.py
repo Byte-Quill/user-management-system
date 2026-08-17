@@ -197,6 +197,58 @@ class AuthTests(APITestCase):
             self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, field)
             self.assertIn(field, res.data, field)
 
+    def test_register_accepts_optional_profile_fields(self):
+        """DOB/nationality/address are optional but stored when provided."""
+        res = self.client.post(
+            "/api/auth/register/",
+            register_payload(
+                "profile@kyc.local",
+                date_of_birth="1992-05-20",
+                nationality="Indian",
+                address_line1="1 Main Street",
+                city="Pune",
+                state="Maharashtra",
+                postal_code="411001",
+                country="India",
+            ),
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="profile@kyc.local")
+        self.assertEqual(str(user.date_of_birth), "1992-05-20")
+        self.assertEqual(user.nationality, "Indian")
+        self.assertEqual(user.address_line1, "1 Main Street")
+        self.assertEqual(user.city, "Pune")
+        self.assertEqual(user.country, "India")
+        # /auth/me/ exposes them so the application form can prefill.
+        verify_via_api(self.client, "profile@kyc.local")
+        res = self.client.post(
+            "/api/auth/token/", {"email": "profile@kyc.local", "password": "Str0ngPass!"}
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+        me = self.client.get("/api/auth/me/")
+        self.assertEqual(me.data["date_of_birth"], "1992-05-20")
+        self.assertEqual(me.data["nationality"], "Indian")
+
+    def test_register_optional_profile_fields_default_blank(self):
+        res = self.client.post("/api/auth/register/", register_payload("minimal@kyc.local"))
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="minimal@kyc.local")
+        self.assertIsNone(user.date_of_birth)
+        self.assertEqual(user.nationality, "")
+        self.assertEqual(user.address_line1, "")
+        self.assertEqual(user.country, "")
+
+    def test_register_rejects_invalid_date_of_birth(self):
+        cases = {
+            "future": register_payload("dob1@kyc.local", date_of_birth="2999-01-01"),
+            "too_old": register_payload("dob2@kyc.local", date_of_birth="1850-01-01"),
+            "malformed": register_payload("dob3@kyc.local", date_of_birth="20/05/1992"),
+        }
+        for label, payload in cases.items():
+            res = self.client.post("/api/auth/register/", payload)
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, label)
+            self.assertIn("date_of_birth", res.data, label)
+
     def test_login_with_phone(self):
         self.client.post("/api/auth/register/", register_payload("phone@kyc.local"))
         verify_via_api(self.client, "phone@kyc.local")

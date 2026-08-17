@@ -103,6 +103,22 @@ export function validatePassword(value: string): string | null {
   return null;
 }
 
+/** Confirm-password check for the password-setting forms (register, reset). */
+export function validateConfirmPassword(password: string, confirm: string): string | null {
+  if (!confirm) return "Please confirm your password.";
+  if (password !== confirm) return "Passwords do not match.";
+  return null;
+}
+
+/**
+ * Login only checks presence — strength rules apply when *setting* a
+ * password, never when signing in with an existing one.
+ */
+export function validateLoginPassword(value: string): string | null {
+  if (!value) return "Password is required.";
+  return null;
+}
+
 export function validateRequired(
   value: string,
   label: string,
@@ -142,6 +158,15 @@ export function validatePhone(value: string): string | null {
 
 export function validateDateOfBirth(value: string): string | null {
   if (isBlank(value)) return "Date of birth is required.";
+  if (!isValidISODate(value)) return "Enter a valid date.";
+  if (value > todayISO()) return "Date of birth cannot be in the future.";
+  if (value < "1900-01-01") return "Enter a valid date of birth.";
+  return null;
+}
+
+/** Optional DOB (registration): same bounds, but an empty value is fine. */
+export function validateOptionalDateOfBirth(value: string): string | null {
+  if (!value) return null;
   if (!isValidISODate(value)) return "Enter a valid date.";
   if (value > todayISO()) return "Date of birth cannot be in the future.";
   if (value < "1900-01-01") return "Enter a valid date of birth.";

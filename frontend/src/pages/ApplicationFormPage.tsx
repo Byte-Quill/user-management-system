@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 
 import * as api from "../api";
 import { useAuth } from "../auth";
+import CountrySelect from "../components/CountrySelect";
+import DateOfBirthInput from "../components/DateOfBirthInput";
 import { Field, Select, TextInput } from "../components/Field";
 import type { ApplicationPayload } from "../types";
 import { validateApplication } from "../validation";
@@ -28,14 +30,23 @@ const EMPTY: ApplicationPayload = {
 export default function ApplicationFormPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  // Pre-fill what registration already collected (name + phone) so the
-  // applicant does not re-type identity data.
+  // Pre-fill what registration already collected (name, phone, and the
+  // optional DOB/nationality/address) so the applicant does not re-type
+  // identity data.
   const [form, setForm] = useState<ApplicationPayload>(() => ({
     ...EMPTY,
     full_name: user
       ? [user.first_name, user.middle_name, user.last_name].filter(Boolean).join(" ")
       : "",
     phone: user?.phone ?? "",
+    date_of_birth: user?.date_of_birth ?? "",
+    nationality: user?.nationality ?? "",
+    address_line1: user?.address_line1 ?? "",
+    address_line2: user?.address_line2 ?? "",
+    city: user?.city ?? "",
+    state: user?.state ?? "",
+    postal_code: user?.postal_code ?? "",
+    country: user?.country ?? "",
   }));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<keyof ApplicationPayload>>({});
   const [error, setError] = useState("");
@@ -43,8 +54,9 @@ export default function ApplicationFormPage() {
 
   const set =
     (key: keyof ApplicationPayload) =>
-    (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      setForm({ ...form, [key]: e.target.value });
+    (e: ChangeEvent<HTMLInputElement | HTMLSelectElement> | string) => {
+      const value = typeof e === "string" ? e : e.target.value;
+      setForm({ ...form, [key]: value });
       setFieldErrors((prev) => {
         if (!(key in prev)) return prev;
         const next = { ...prev };
@@ -85,11 +97,11 @@ export default function ApplicationFormPage() {
                 invalid={!!fieldErrors.full_name} />
             </Field>
             <Field label="Date of birth" error={fieldErrors.date_of_birth}>
-              <TextInput required type="date" value={form.date_of_birth} onChange={set("date_of_birth")}
+              <DateOfBirthInput value={form.date_of_birth} onChange={set("date_of_birth")}
                 invalid={!!fieldErrors.date_of_birth} />
             </Field>
             <Field label="Nationality" error={fieldErrors.nationality}>
-              <TextInput required value={form.nationality} onChange={set("nationality")} maxLength={100}
+              <CountrySelect value={form.nationality} onChange={set("nationality")}
                 invalid={!!fieldErrors.nationality} />
             </Field>
             <Field label="Phone" error={fieldErrors.phone}>
@@ -127,7 +139,7 @@ export default function ApplicationFormPage() {
                 invalid={!!fieldErrors.postal_code} />
             </Field>
             <Field label="Country" error={fieldErrors.country}>
-              <TextInput required value={form.country} onChange={set("country")} maxLength={100}
+              <CountrySelect value={form.country} onChange={set("country")}
                 invalid={!!fieldErrors.country} />
             </Field>
           </div>

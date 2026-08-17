@@ -13,6 +13,15 @@ export interface User {
   /** Canonical phone (+digits); null for Google-provisioned accounts. */
   phone: string | null;
   gender: Gender;
+  /** Optional profile details collected at registration (may be blank). */
+  date_of_birth: string | null;
+  nationality: string;
+  address_line1: string;
+  address_line2: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
   role: Role;
   /** False until the signup OTP is confirmed; password login is blocked. */
   email_verified: boolean;

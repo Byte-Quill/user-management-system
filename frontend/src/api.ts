@@ -130,6 +130,14 @@ export const register = (payload: {
   last_name: string;
   phone: string;
   gender: string;
+  date_of_birth?: string | null;
+  nationality?: string;
+  address_line1?: string;
+  address_line2?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
+  country?: string;
 }) =>
   request<User>("/auth/register/", { method: "POST", body: JSON.stringify(payload) });
 

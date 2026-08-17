@@ -6,7 +6,7 @@ import * as api from "../api";
 import { GOOGLE_CLIENT_ID } from "../App";
 import { useAuth } from "../auth";
 import GoogleSignInButton from "../components/GoogleSignInButton";
-import { validateIdentifier } from "../validation";
+import { validateIdentifier, validateLoginPassword } from "../validation";
 
 interface LoginLocationState {
   email?: string;
@@ -35,8 +35,9 @@ export default function LoginPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const identifierError = validateIdentifier(identifier);
-    if (identifierError) {
-      setError(identifierError);
+    const passwordError = validateLoginPassword(password);
+    if (identifierError || passwordError) {
+      setError(identifierError ?? passwordError ?? "");
       return;
     }
     setError("");

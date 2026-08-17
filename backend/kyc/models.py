@@ -105,6 +105,17 @@ class User(AbstractUser):
     # Nullable so Google-provisioned users (no phone collected) can exist;
     # Postgres unique constraints allow multiple NULLs.
     phone = models.CharField(max_length=30, null=True, blank=True, unique=True)
+    # Optional profile details collected at registration (all blank so
+    # Google-provisioned accounts and minimal signups stay valid). Limits
+    # mirror KYCApplication so the application form can prefill 1:1.
+    date_of_birth = models.DateField(null=True, blank=True)
+    nationality = models.CharField(max_length=100, blank=True, default="")
+    address_line1 = models.CharField(max_length=255, blank=True, default="")
+    address_line2 = models.CharField(max_length=255, blank=True, default="")
+    city = models.CharField(max_length=100, blank=True, default="")
+    state = models.CharField(max_length=100, blank=True, default="")
+    postal_code = models.CharField(max_length=20, blank=True, default="")
+    country = models.CharField(max_length=100, blank=True, default="")
     # Hard email verification: password login is refused until the user proves
     # ownership of their inbox with an OTP (see kyc/otp.py). Google users are
     # verified by definition (Google proved ownership), and all users that

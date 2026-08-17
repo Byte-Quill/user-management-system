@@ -14,7 +14,24 @@ class UserAdmin(BaseUserAdmin):
         (None, {"classes": ("wide",), "fields": ("email", "phone", "gender")}),
     )
     fieldsets = BaseUserAdmin.fieldsets + (
-        ("Profile", {"fields": ("middle_name", "phone", "gender")}),
+        (
+            "Profile",
+            {
+                "fields": (
+                    "middle_name",
+                    "phone",
+                    "gender",
+                    "date_of_birth",
+                    "nationality",
+                    "address_line1",
+                    "address_line2",
+                    "city",
+                    "state",
+                    "postal_code",
+                    "country",
+                )
+            },
+        ),
         ("Role", {"fields": ("role",)}),
         # Staff can verify manually when a user cannot complete the OTP flow
         # (e.g. lost inbox access).

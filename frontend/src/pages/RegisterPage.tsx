@@ -4,13 +4,18 @@ import { Link, useNavigate } from "react-router-dom";
 
 import * as api from "../api";
 import { GOOGLE_CLIENT_ID } from "../App";
+import CountrySelect from "../components/CountrySelect";
+import DateOfBirthInput from "../components/DateOfBirthInput";
 import { Field, Select, TextInput } from "../components/Field";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 import {
   GENDER_OPTIONS,
+  validateConfirmPassword,
   validateEmail,
   validateGender,
   validateName,
+  validateOptional,
+  validateOptionalDateOfBirth,
   validatePassword,
   validatePhone,
 } from "../validation";
@@ -23,6 +28,15 @@ interface RegisterForm {
   phone: string;
   gender: string;
   password: string;
+  confirm_password: string;
+  date_of_birth: string;
+  nationality: string;
+  address_line1: string;
+  address_line2: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
 }
 
 const INITIAL: RegisterForm = {
@@ -33,20 +47,80 @@ const INITIAL: RegisterForm = {
   phone: "",
   gender: "",
   password: "",
+  confirm_password: "",
+  date_of_birth: "",
+  nationality: "",
+  address_line1: "",
+  address_line2: "",
+  city: "",
+  state: "",
+  postal_code: "",
+  country: "",
 };
+
+type FieldKey = keyof RegisterForm;
+
+/** Per-field validators; each step validates only its own fields. */
+const FIELD_VALIDATORS: Record<FieldKey, (form: RegisterForm) => string | null> = {
+  first_name: (f) => validateName(f.first_name, "First name"),
+  middle_name: (f) => validateName(f.middle_name, "Middle name", false),
+  last_name: (f) => validateName(f.last_name, "Last name"),
+  email: (f) => validateEmail(f.email),
+  phone: (f) => validatePhone(f.phone),
+  gender: (f) => validateGender(f.gender),
+  password: (f) => validatePassword(f.password),
+  confirm_password: (f) => validateConfirmPassword(f.password, f.confirm_password),
+  // Optional profile details — only bounds-checked when provided.
+  date_of_birth: (f) => validateOptionalDateOfBirth(f.date_of_birth),
+  nationality: (f) => validateOptional(f.nationality, "Nationality", 100),
+  address_line1: (f) => validateOptional(f.address_line1, "Address line 1", 255),
+  address_line2: (f) => validateOptional(f.address_line2, "Address line 2", 255),
+  city: (f) => validateOptional(f.city, "City", 100),
+  state: (f) => validateOptional(f.state, "State", 100),
+  postal_code: (f) => validateOptional(f.postal_code, "Postal code", 20),
+  country: (f) => validateOptional(f.country, "Country", 100),
+};
+
+interface Step {
+  title: string;
+  /** Short guidance shown above the step's fields. */
+  hint: string;
+  fields: FieldKey[];
+}
+
+const STEPS: Step[] = [
+  {
+    title: "Account",
+    hint: "You'll sign in with your email or phone. After signup we'll email you a verification code.",
+    fields: ["email", "phone", "password", "confirm_password"],
+  },
+  {
+    title: "Personal details",
+    hint: "Enter your name exactly as it appears on your ID document — reviewers compare it during KYC. Date of birth and nationality are optional.",
+    fields: ["first_name", "middle_name", "last_name", "gender", "date_of_birth", "nationality"],
+  },
+  {
+    title: "Address",
+    hint: "Optional — you can skip this step. Anything entered here is prefilled into your KYC application later.",
+    fields: ["address_line1", "address_line2", "city", "state", "postal_code", "country"],
+  },
+];
 
 export default function RegisterPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState<RegisterForm>(INITIAL);
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof RegisterForm, string>>>({});
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
+  const [step, setStep] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const set =
-    (key: keyof RegisterForm) =>
-    (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      setForm({ ...form, [key]: e.target.value });
+    (key: FieldKey) =>
+    (e: ChangeEvent<HTMLInputElement | HTMLSelectElement> | string) => {
+      const value = typeof e === "string" ? e : e.target.value;
+      setForm({ ...form, [key]: value });
       setFieldErrors((prev) => {
         if (!(key in prev)) return prev;
         const next = { ...prev };
@@ -55,24 +129,33 @@ export default function RegisterPage() {
       });
     };
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-    const errors: Partial<Record<keyof RegisterForm, string>> = {};
-    const checks: Array<[keyof RegisterForm, string | null]> = [
-      ["first_name", validateName(form.first_name, "First name")],
-      ["middle_name", validateName(form.middle_name, "Middle name", false)],
-      ["last_name", validateName(form.last_name, "Last name")],
-      ["email", validateEmail(form.email)],
-      ["phone", validatePhone(form.phone)],
-      ["gender", validateGender(form.gender)],
-      ["password", validatePassword(form.password)],
-    ];
-    for (const [key, message] of checks) {
+  /** Validate one step; shows its errors and reports whether it passed. */
+  const validateStep = (index: number): boolean => {
+    const errors: Partial<Record<FieldKey, string>> = {};
+    for (const key of STEPS[index].fields) {
+      const message = FIELD_VALIDATORS[key](form);
       if (message) errors[key] = message;
     }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
+      return false;
+    }
+    return true;
+  };
+
+  const back = () => {
+    setError("");
+    setFieldErrors({});
+    setStep((s) => Math.max(s - 1, 0));
+  };
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (!validateStep(step)) return;
+    // Multi-step: Enter/submit advances until the final step.
+    if (step < STEPS.length - 1) {
+      setStep(step + 1);
       return;
     }
     setBusy(true);
@@ -85,6 +168,14 @@ export default function RegisterPage() {
         last_name: form.last_name.trim(),
         phone: form.phone.trim(),
         gender: form.gender,
+        date_of_birth: form.date_of_birth || null,
+        nationality: form.nationality.trim() || undefined,
+        address_line1: form.address_line1.trim() || undefined,
+        address_line2: form.address_line2.trim() || undefined,
+        city: form.city.trim() || undefined,
+        state: form.state.trim() || undefined,
+        postal_code: form.postal_code.trim() || undefined,
+        country: form.country.trim() || undefined,
       });
       // Hard email verification: no auto-login — the user must confirm the
       // OTP that was just emailed before password login works.
@@ -101,108 +192,279 @@ export default function RegisterPage() {
       <div className="w-full max-w-md rounded-lg bg-white p-8 shadow">
         <h1 className="mb-6 text-center text-2xl font-bold text-slate-900">Create account</h1>
         <form onSubmit={onSubmit} className="space-y-4" noValidate>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="First name" error={fieldErrors.first_name}>
-              <TextInput
-                required
-                autoFocus
-                autoComplete="given-name"
-                value={form.first_name}
-                onChange={set("first_name")}
-                maxLength={150}
-                invalid={!!fieldErrors.first_name}
-              />
-            </Field>
-            <Field label="Last name" error={fieldErrors.last_name}>
-              <TextInput
-                required
-                autoComplete="family-name"
-                value={form.last_name}
-                onChange={set("last_name")}
-                maxLength={150}
-                invalid={!!fieldErrors.last_name}
-              />
-            </Field>
-          </div>
-          <Field label="Middle name (optional)" error={fieldErrors.middle_name}>
-            <TextInput
-              autoComplete="additional-name"
-              value={form.middle_name}
-              onChange={set("middle_name")}
-              maxLength={150}
-              invalid={!!fieldErrors.middle_name}
-            />
-          </Field>
-          <Field label="Email" error={fieldErrors.email}>
-            <TextInput
-              type="email"
-              required
-              autoComplete="email"
-              value={form.email}
-              onChange={set("email")}
-              maxLength={254}
-              invalid={!!fieldErrors.email}
-            />
-          </Field>
-          <Field label="Phone" error={fieldErrors.phone}>
-            <TextInput
-              type="tel"
-              required
-              autoComplete="tel"
-              placeholder="+91 98765 43210"
-              value={form.phone}
-              onChange={set("phone")}
-              maxLength={30}
-              invalid={!!fieldErrors.phone}
-            />
-          </Field>
-          <Field label="Gender" error={fieldErrors.gender}>
-            <Select
-              required
-              autoComplete="sex"
-              value={form.gender}
-              onChange={set("gender")}
-              invalid={!!fieldErrors.gender}
-            >
-              <option value="" disabled>
-                Select…
-              </option>
-              {GENDER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+          {/* Step indicator + progress bar */}
+          <div>
+            <div className="mb-2 flex items-start justify-between">
+              {STEPS.map((s, i) => (
+                <div key={s.title} className="flex w-1/3 flex-col items-center gap-1">
+                  <span
+                    className={
+                      "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold " +
+                      (i < step
+                        ? "bg-blue-600 text-white"
+                        : i === step
+                          ? "border-2 border-blue-600 bg-white text-blue-600"
+                          : "border border-slate-300 bg-white text-slate-400")
+                    }
+                  >
+                    {i < step ? "✓" : i + 1}
+                  </span>
+                  <span
+                    className={
+                      "text-center text-[11px] leading-tight " +
+                      (i <= step ? "font-medium text-slate-700" : "text-slate-400")
+                    }
+                  >
+                    {s.title}
+                  </span>
+                </div>
               ))}
-            </Select>
-          </Field>
-          <Field label="Password" error={fieldErrors.password}>
-            <div className="relative">
-              <TextInput
-                type={showPassword ? "text" : "password"}
-                required
-                minLength={8}
-                autoComplete="new-password"
-                value={form.password}
-                onChange={set("password")}
-                invalid={!!fieldErrors.password}
+            </div>
+            <div
+              className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
+              role="progressbar"
+              aria-valuenow={step + 1}
+              aria-valuemin={1}
+              aria-valuemax={STEPS.length}
+              aria-label={`Step ${step + 1} of ${STEPS.length}: ${STEPS[step].title}`}
+            >
+              <div
+                className="h-full rounded-full bg-blue-600 transition-all duration-300"
+                style={{ width: `${((step + 1) / STEPS.length) * 100}%` }}
               />
+            </div>
+          </div>
+
+          {/* Per-step hint */}
+          <p className="rounded bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800">
+            {STEPS[step].hint}
+          </p>
+
+          {step === 0 && (
+            <>
+              <Field label="Email" error={fieldErrors.email}>
+                <TextInput
+                  type="email"
+                  required
+                  autoFocus
+                  autoComplete="email"
+                  value={form.email}
+                  onChange={set("email")}
+                  maxLength={254}
+                  invalid={!!fieldErrors.email}
+                />
+              </Field>
+              <Field label="Phone" error={fieldErrors.phone}>
+                <TextInput
+                  type="tel"
+                  required
+                  autoComplete="tel"
+                  placeholder="+91 98765 43210"
+                  value={form.phone}
+                  onChange={set("phone")}
+                  maxLength={30}
+                  invalid={!!fieldErrors.phone}
+                />
+              </Field>
+              <Field label="Password" error={fieldErrors.password}>
+                <div className="relative">
+                  <TextInput
+                    type={showPassword ? "text" : "password"}
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                    value={form.password}
+                    onChange={set("password")}
+                    invalid={!!fieldErrors.password}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-slate-700"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </Field>
+              <Field label="Confirm password" error={fieldErrors.confirm_password}>
+                <div className="relative">
+                  <TextInput
+                    type={showConfirmPassword ? "text" : "password"}
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                    value={form.confirm_password}
+                    onChange={set("confirm_password")}
+                    invalid={!!fieldErrors.confirm_password}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((v) => !v)}
+                    className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-slate-700"
+                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                  >
+                    {showConfirmPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </Field>
+            </>
+          )}
+
+          {step === 1 && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="First name" error={fieldErrors.first_name}>
+                  <TextInput
+                    required
+                    autoFocus
+                    autoComplete="given-name"
+                    value={form.first_name}
+                    onChange={set("first_name")}
+                    maxLength={150}
+                    invalid={!!fieldErrors.first_name}
+                  />
+                </Field>
+                <Field label="Last name" error={fieldErrors.last_name}>
+                  <TextInput
+                    required
+                    autoComplete="family-name"
+                    value={form.last_name}
+                    onChange={set("last_name")}
+                    maxLength={150}
+                    invalid={!!fieldErrors.last_name}
+                  />
+                </Field>
+              </div>
+              <Field label="Middle name (optional)" error={fieldErrors.middle_name}>
+                <TextInput
+                  autoComplete="additional-name"
+                  value={form.middle_name}
+                  onChange={set("middle_name")}
+                  maxLength={150}
+                  invalid={!!fieldErrors.middle_name}
+                />
+              </Field>
+              <Field label="Gender" error={fieldErrors.gender}>
+                <Select
+                  required
+                  autoComplete="sex"
+                  value={form.gender}
+                  onChange={set("gender")}
+                  invalid={!!fieldErrors.gender}
+                >
+                  <option value="" disabled>
+                    Select…
+                  </option>
+                  {GENDER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Date of birth (optional)" error={fieldErrors.date_of_birth}>
+                  <DateOfBirthInput
+                    value={form.date_of_birth}
+                    onChange={set("date_of_birth")}
+                    invalid={!!fieldErrors.date_of_birth}
+                  />
+                </Field>
+                <Field label="Nationality (optional)" error={fieldErrors.nationality}>
+                  <CountrySelect
+                    value={form.nationality}
+                    onChange={set("nationality")}
+                    invalid={!!fieldErrors.nationality}
+                  />
+                </Field>
+              </div>
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <Field label="Address line 1" error={fieldErrors.address_line1}>
+                <TextInput
+                  autoFocus
+                  autoComplete="address-line1"
+                  value={form.address_line1}
+                  onChange={set("address_line1")}
+                  maxLength={255}
+                  invalid={!!fieldErrors.address_line1}
+                />
+              </Field>
+              <Field label="Address line 2" error={fieldErrors.address_line2}>
+                <TextInput
+                  autoComplete="address-line2"
+                  value={form.address_line2}
+                  onChange={set("address_line2")}
+                  maxLength={255}
+                  invalid={!!fieldErrors.address_line2}
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="City" error={fieldErrors.city}>
+                  <TextInput
+                    autoComplete="address-level2"
+                    value={form.city}
+                    onChange={set("city")}
+                    maxLength={100}
+                    invalid={!!fieldErrors.city}
+                  />
+                </Field>
+                <Field label="State" error={fieldErrors.state}>
+                  <TextInput
+                    autoComplete="address-level1"
+                    value={form.state}
+                    onChange={set("state")}
+                    maxLength={100}
+                    invalid={!!fieldErrors.state}
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Postal code" error={fieldErrors.postal_code}>
+                  <TextInput
+                    autoComplete="postal-code"
+                    value={form.postal_code}
+                    onChange={set("postal_code")}
+                    maxLength={20}
+                    invalid={!!fieldErrors.postal_code}
+                  />
+                </Field>
+                <Field label="Country" error={fieldErrors.country}>
+                  <CountrySelect
+                    value={form.country}
+                    onChange={set("country")}
+                    invalid={!!fieldErrors.country}
+                  />
+                </Field>
+              </div>
+            </>
+          )}
+
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          <div className="flex gap-3">
+            {step > 0 && (
               <button
                 type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-slate-700"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                onClick={back}
+                disabled={busy}
+                className="flex-1 rounded border border-slate-300 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
-                {showPassword ? "Hide" : "Show"}
+                Back
               </button>
-            </div>
-          </Field>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full rounded bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {busy ? "Creating…" : "Create account"}
-          </button>
+            )}
+            <button
+              type="submit"
+              disabled={busy}
+              className="flex-1 rounded bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {busy ? "Creating…" : step < STEPS.length - 1 ? "Next" : "Create account"}
+            </button>
+          </div>
         </form>
 
         {GOOGLE_CLIENT_ID && (

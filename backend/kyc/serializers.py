@@ -116,6 +116,27 @@ class RegisterSerializer(serializers.ModelSerializer):
     last_name = serializers.CharField(max_length=150)
     phone = serializers.CharField(max_length=30)
     gender = serializers.ChoiceField(choices=User.Gender.choices)
+    # Optional profile details — blankable so minimal signups and
+    # Google-provisioned accounts stay valid. Limits mirror KYCApplication
+    # so the application form can prefill from the profile 1:1.
+    date_of_birth = serializers.DateField(required=False, allow_null=True, default=None)
+    nationality = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default=""
+    )
+    address_line1 = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, default=""
+    )
+    address_line2 = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, default=""
+    )
+    city = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    state = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    postal_code = serializers.CharField(
+        max_length=20, required=False, allow_blank=True, default=""
+    )
+    country = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default=""
+    )
 
     class Meta:
         model = User
@@ -129,6 +150,14 @@ class RegisterSerializer(serializers.ModelSerializer):
             "last_name",
             "phone",
             "gender",
+            "date_of_birth",
+            "nationality",
+            "address_line1",
+            "address_line2",
+            "city",
+            "state",
+            "postal_code",
+            "country",
             "role",
         )
 
@@ -140,6 +169,16 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate_last_name(self, value):
         return validate_person_name(value, "Last name")
+
+    def validate_date_of_birth(self, value):
+        # Same sanity bounds as KYCApplicationSerializer.
+        if value is None:
+            return None
+        if value > date.today():
+            raise serializers.ValidationError("Date of birth cannot be in the future.")
+        if value < DOB_MIN:
+            raise serializers.ValidationError("Enter a valid date of birth.")
+        return value
 
     def validate_phone(self, value):
         trimmed = value.strip()
@@ -187,6 +226,14 @@ class RegisterSerializer(serializers.ModelSerializer):
             last_name=validated_data["last_name"],
             phone=validated_data["phone"],
             gender=validated_data["gender"],
+            date_of_birth=validated_data.get("date_of_birth"),
+            nationality=validated_data.get("nationality", ""),
+            address_line1=validated_data.get("address_line1", ""),
+            address_line2=validated_data.get("address_line2", ""),
+            city=validated_data.get("city", ""),
+            state=validated_data.get("state", ""),
+            postal_code=validated_data.get("postal_code", ""),
+            country=validated_data.get("country", ""),
             role=User.Role.APPLICANT,
         )
 
@@ -203,6 +250,14 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
             "phone",
             "gender",
+            "date_of_birth",
+            "nationality",
+            "address_line1",
+            "address_line2",
+            "city",
+            "state",
+            "postal_code",
+            "country",
             "role",
             "email_verified",
         )
