@@ -12,6 +12,8 @@ interface LoginLocationState {
   email?: string;
   verified?: boolean;
   passwordReset?: boolean;
+  /** Set after a phone-only signup (nothing to verify). */
+  registered?: boolean;
 }
 
 export default function LoginPage() {
@@ -28,7 +30,9 @@ export default function LoginPage() {
       ? "Email verified. You can sign in now."
       : state.passwordReset
         ? "Password updated. You can sign in now."
-        : ""
+        : state.registered
+          ? "Account created. Sign in with your phone number and password."
+          : ""
   );
   const [busy, setBusy] = useState(false);
 

@@ -153,12 +153,13 @@ export const googleLogin = (credential: string) =>
   });
 
 export const register = (payload: {
-  email: string;
+  /** Optional, but at least one of email/phone is required server-side. */
+  email?: string;
   password: string;
   first_name: string;
   middle_name?: string;
   last_name: string;
-  phone: string;
+  phone?: string;
   gender: string;
   date_of_birth?: string | null;
   nationality?: string;

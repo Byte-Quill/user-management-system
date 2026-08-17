@@ -161,6 +161,55 @@ class AuthTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("access", res.data)
 
+    def test_register_phone_only_and_login_with_phone(self):
+        """A phone-only account (no email) is created and can log in immediately."""
+        payload = register_payload("ignored@kyc.local", phone="+919876500099")
+        payload.pop("email")  # omit email entirely (matches the SPA payload)
+        res = self.client.post("/api/auth/register/", payload)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(res.data["email"])
+
+        user = User.objects.get(phone="+919876500099")
+        self.assertIsNone(user.email)
+        # No email to verify: no OTP email is sent and login is not gated.
+        self.assertEqual(len(mail.outbox), 0)
+
+        res = self.client.post(
+            "/api/auth/token/", {"email": "+919876500099", "password": "Str0ngPass!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("access", res.data)
+
+    def test_register_email_only_and_login(self):
+        """An email-only account (no phone) still requires OTP verification."""
+        payload = register_payload("emailonly@kyc.local")
+        payload.pop("phone")  # omit phone entirely (matches the SPA payload)
+        res = self.client.post("/api/auth/register/", payload)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(res.data["phone"])
+
+        # Email present → OTP gate applies until verified.
+        res = self.client.post(
+            "/api/auth/token/", {"email": "emailonly@kyc.local", "password": "Str0ngPass!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(res.data.get("code"), "email_not_verified")
+
+        verify_via_api(self.client, "emailonly@kyc.local")
+        res = self.client.post(
+            "/api/auth/token/", {"email": "emailonly@kyc.local", "password": "Str0ngPass!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_register_requires_email_or_phone(self):
+        """At least one contact method is required."""
+        payload = register_payload("neither@kyc.local")
+        payload.pop("email")
+        payload.pop("phone")
+        res = self.client.post("/api/auth/register/", payload)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("non_field_errors", res.data)
+
     def test_register_generates_user_id_and_ignores_client_username(self):
         """The User ID is server-generated; a client-supplied username is dropped."""
         res = self.client.post(

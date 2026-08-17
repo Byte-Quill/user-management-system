@@ -4,7 +4,8 @@ export type Gender = "male" | "female" | "other" | "prefer_not_to_say" | "";
 
 export interface User {
   id: number;
-  email: string;
+  /** Null for phone-only accounts. */
+  email: string | null;
   /** Auto-generated public User ID (e.g. PHIN-8F3K2A); never user-chosen. */
   username: string;
   first_name: string;
@@ -45,7 +46,9 @@ export interface KycDocument {
 
 export interface KYCApplication {
   id: string;
-  applicant_email: string;
+  /** Stable ownership key (email can be null for phone-only accounts). */
+  applicant_id: number;
+  applicant_email: string | null;
   status: ApplicationStatus;
   full_name: string;
   date_of_birth: string;
@@ -80,6 +83,7 @@ export interface AuditEntry {
 export type ApplicationPayload = Omit<
   KYCApplication,
   | "id"
+  | "applicant_id"
   | "applicant_email"
   | "status"
   | "reviewer_email"

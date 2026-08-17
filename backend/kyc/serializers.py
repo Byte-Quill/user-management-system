@@ -70,28 +70,25 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     ``TokenObtainSerializer.validate`` authenticates against
     ``attrs[self.username_field]``; ``username_field`` points at ``email``.
-    When the submitted identifier is a phone number it is normalized and
-    resolved to the account's email first, so authentication, error messages
-    and the email+IP login throttle behave exactly like email login.
+    The identifier (email or phone) is passed through unchanged and resolved
+    by ``EmailOrPhoneBackend`` against both unique columns, so phone-only
+    accounts (email IS NULL) authenticate too.
     """
 
     username_field = "email"
 
     def validate(self, attrs):
-        identifier = (attrs.get("email") or "").strip()
-        if identifier and "@" not in identifier and PHONE_CHARS_RE.match(identifier):
-            user = User.objects.filter(phone=normalize_phone(identifier)).first()
-            if user is not None:
-                attrs["email"] = user.email
-            # Unknown phone: leave the identifier as-is so authenticate()
-            # fails with the same generic 401 as a wrong email.
+        # The identifier (email or phone) is passed through unchanged;
+        # EmailOrPhoneBackend resolves it against both unique columns, so
+        # phone-only accounts (email IS NULL) authenticate too.
         data = super().validate(attrs)
         # Hard email verification: the password was right, but the account
-        # stays locked until the signup OTP proves inbox ownership. The
-        # specific error code is safe here — only someone who knows this
-        # account's password ever sees it, so it cannot enumerate *other*
-        # accounts.
-        if not self.user.email_verified:
+        # stays locked until the signup OTP proves inbox ownership. Only
+        # applies to accounts that HAVE an email — phone-only accounts have
+        # nothing to verify and sign in immediately. The specific error code
+        # is safe here — only someone who knows this account's password ever
+        # sees it, so it cannot enumerate *other* accounts.
+        if self.user.email and not self.user.email_verified:
             raise PermissionDenied(
                 {"detail": "Verify your email to sign in.", "code": "email_not_verified"}
             )
@@ -108,6 +105,11 @@ class RegisterSerializer(serializers.ModelSerializer):
     password = PasswordField()
     role = serializers.CharField(read_only=True)
     username = serializers.CharField(read_only=True)
+    # Email and phone are each optional, but at least one is required
+    # (enforced in validate()). This lets users sign up with just a phone.
+    email = serializers.EmailField(
+        required=False, allow_blank=True, allow_null=True, default=None
+    )
     # AbstractUser's name fields are blank=True, which DRF would make
     # optional; registration requires first and last names.
     first_name = serializers.CharField(max_length=150)
@@ -115,7 +117,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         max_length=150, required=False, allow_blank=True, default=""
     )
     last_name = serializers.CharField(max_length=150)
-    phone = serializers.CharField(max_length=30)
+    phone = serializers.CharField(
+        max_length=30, required=False, allow_blank=True, allow_null=True, default=None
+    )
     gender = serializers.ChoiceField(choices=User.Gender.choices)
     # Optional profile details — blankable so minimal signups and
     # Google-provisioned accounts stay valid. Limits mirror KYCApplication
@@ -163,6 +167,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
 
     def validate_email(self, value):
+        # Email is optional (a phone alone is enough); normalize empty to None.
+        if not value:
+            return None
         # KYC accounts must be reachable long-term, so disposable / temp-mail
         # providers are rejected at signup. EmailField already guarantees a
         # syntactically valid address; this adds the domain blocklist check.
@@ -193,9 +200,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def validate_phone(self, value):
+        # Phone is optional (an email alone is enough); normalize empty to None.
+        if not value:
+            return None
         trimmed = value.strip()
         if not trimmed:
-            raise serializers.ValidationError("Phone is required.")
+            return None
         if not PHONE_CHARS_RE.match(trimmed):
             raise serializers.ValidationError(
                 "Enter a valid phone number (digits, spaces, + - ( ) .)."
@@ -212,11 +222,16 @@ class RegisterSerializer(serializers.ModelSerializer):
         return normalized
 
     def validate(self, attrs):
+        # At least one contact method is required: email OR phone.
+        if not attrs.get("email") and not attrs.get("phone"):
+            raise serializers.ValidationError(
+                "Provide an email address or a phone number (at least one is required)."
+            )
         # create_user() does not run Django's password validators, so enforce
         # AUTH_PASSWORD_VALIDATORS here. Passing an (unsaved) user lets the
         # attribute-similarity validator compare against email/names/phone.
         user = User(
-            email=attrs.get("email", ""),
+            email=attrs.get("email"),
             first_name=attrs.get("first_name", ""),
             middle_name=attrs.get("middle_name", ""),
             last_name=attrs.get("last_name", ""),
@@ -230,13 +245,13 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         return User.objects.create_user(
-            email=validated_data["email"],
+            email=validated_data.get("email"),
             username=generate_user_id(),
             password=validated_data["password"],
             first_name=validated_data["first_name"],
             middle_name=validated_data.get("middle_name", ""),
             last_name=validated_data["last_name"],
-            phone=validated_data["phone"],
+            phone=validated_data.get("phone"),
             gender=validated_data["gender"],
             date_of_birth=validated_data.get("date_of_birth"),
             nationality=validated_data.get("nationality", ""),
@@ -314,13 +329,19 @@ class AuditLogSerializer(serializers.ModelSerializer):
 
 class KYCApplicationSerializer(serializers.ModelSerializer):
     documents = DocumentSerializer(many=True, read_only=True)
-    applicant_email = serializers.EmailField(source="applicant.email", read_only=True)
+    # applicant_id is the stable ownership key (email can be null for
+    # phone-only accounts, so it cannot be used to identify the owner).
+    applicant_id = serializers.IntegerField(source="applicant.id", read_only=True)
+    applicant_email = serializers.EmailField(
+        source="applicant.email", read_only=True, default=None
+    )
     reviewer_email = serializers.EmailField(source="reviewer.email", read_only=True, default=None)
 
     class Meta:
         model = KYCApplication
         fields = (
             "id",
+            "applicant_id",
             "applicant_email",
             "status",
             "full_name",

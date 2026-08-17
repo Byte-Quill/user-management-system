@@ -8,6 +8,7 @@ import CountrySelect from "../components/CountrySelect";
 import DateOfBirthInput from "../components/DateOfBirthInput";
 import { Field, Select, TextInput } from "../components/Field";
 import GoogleSignInButton from "../components/GoogleSignInButton";
+import PhoneInputField from "../components/PhoneInputField";
 import {
   GENDER_OPTIONS,
   validateConfirmPassword,
@@ -15,8 +16,8 @@ import {
   validateName,
   validateOptional,
   validateOptionalDateOfBirth,
+  validateE164Phone,
   validatePassword,
-  validatePhone,
   validateRegistrationEmail,
 } from "../validation";
 
@@ -65,8 +66,10 @@ const FIELD_VALIDATORS: Record<FieldKey, (form: RegisterForm) => string | null> 
   first_name: (f) => validateName(f.first_name, "First name"),
   middle_name: (f) => validateName(f.middle_name, "Middle name", false),
   last_name: (f) => validateName(f.last_name, "Last name"),
-  email: (f) => validateRegistrationEmail(f.email),
-  phone: (f) => validatePhone(f.phone),
+  // Email and phone are each optional; the at-least-one rule is checked in
+  // validateStep. Empty values skip their own validator.
+  email: (f) => (f.email.trim() ? validateRegistrationEmail(f.email) : null),
+  phone: (f) => (f.phone.trim() ? validateE164Phone(f.phone) : null),
   gender: (f) => validateGender(f.gender),
   password: (f) => validatePassword(f.password),
   confirm_password: (f) => validateConfirmPassword(f.password, f.confirm_password),
@@ -91,7 +94,7 @@ interface Step {
 const STEPS: Step[] = [
   {
     title: "Account",
-    hint: "You'll sign in with your email or phone. After signup we'll email you a verification code.",
+    hint: "Provide an email or a phone number (at least one). If you add an email, we'll send you a verification code before you can sign in.",
     fields: ["email", "phone", "password", "confirm_password"],
   },
   {
@@ -136,6 +139,10 @@ export default function RegisterPage() {
       const message = FIELD_VALIDATORS[key](form);
       if (message) errors[key] = message;
     }
+    // Cross-field rule (Account step): at least one contact method required.
+    if (index === 0 && !form.email.trim() && !form.phone.trim()) {
+      errors.email = "Provide an email address or a phone number.";
+    }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       return false;
@@ -160,13 +167,15 @@ export default function RegisterPage() {
     }
     setBusy(true);
     try {
+      const email = form.email.trim();
+      const phone = form.phone.trim();
       await api.register({
-        email: form.email.trim(),
+        email: email || undefined,
         password: form.password,
         first_name: form.first_name.trim(),
         middle_name: form.middle_name.trim() || undefined,
         last_name: form.last_name.trim(),
-        phone: form.phone.trim(),
+        phone: phone || undefined,
         gender: form.gender,
         date_of_birth: form.date_of_birth || null,
         nationality: form.nationality.trim() || undefined,
@@ -177,9 +186,14 @@ export default function RegisterPage() {
         postal_code: form.postal_code.trim() || undefined,
         country: form.country.trim() || undefined,
       });
-      // Hard email verification: no auto-login — the user must confirm the
-      // OTP that was just emailed before password login works.
-      navigate("/verify-email", { state: { email: form.email.trim() } });
+      if (email) {
+        // Hard email verification: no auto-login — the user must confirm the
+        // OTP that was just emailed before password login works.
+        navigate("/verify-email", { state: { email } });
+      } else {
+        // Phone-only account: nothing to verify — go straight to sign-in.
+        navigate("/login", { state: { registered: true } });
+      }
     } catch (err) {
       // Map server-side field errors (duplicate email/phone, disposable
       // email, …) onto the wizard: inline error on the field + jump back to
@@ -264,10 +278,9 @@ export default function RegisterPage() {
 
           {step === 0 && (
             <>
-              <Field label="Email" error={fieldErrors.email}>
+              <Field label="Email (optional if phone is provided)" error={fieldErrors.email}>
                 <TextInput
                   type="email"
-                  required
                   autoFocus
                   autoComplete="email"
                   value={form.email}
@@ -276,15 +289,10 @@ export default function RegisterPage() {
                   invalid={!!fieldErrors.email}
                 />
               </Field>
-              <Field label="Phone" error={fieldErrors.phone}>
-                <TextInput
-                  type="tel"
-                  required
-                  autoComplete="tel"
-                  placeholder="+91 98765 43210"
+              <Field label="Phone (optional if email is provided)" error={fieldErrors.phone}>
+                <PhoneInputField
                   value={form.phone}
                   onChange={set("phone")}
-                  maxLength={30}
                   invalid={!!fieldErrors.phone}
                 />
               </Field>

@@ -46,7 +46,7 @@ export default function ReviewQueuePage() {
               <tr key={app.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3">
                   <p className="font-medium">{app.full_name}</p>
-                  <p className="text-slate-500">{app.applicant_email}</p>
+                  <p className="text-slate-500">{app.applicant_email ?? app.phone}</p>
                 </td>
                 <td className="px-4 py-3 capitalize">
                   {app.id_type.replace("_", " ")} · {app.id_number}

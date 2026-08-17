@@ -152,6 +152,15 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "kyc.User"
 
+# EmailOrPhoneBackend lets the login identifier (sent in the `email` field)
+# resolve against both the unique email and phone columns, so phone-only
+# accounts (email IS NULL) can authenticate. Falls back to ModelBackend for
+# admin/other flows.
+AUTHENTICATION_BACKENDS = [
+    "kyc.backends.EmailOrPhoneBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",

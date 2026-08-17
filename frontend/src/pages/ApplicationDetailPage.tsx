@@ -95,7 +95,9 @@ export default function ApplicationDetailPage() {
   if (!app) return <p className="text-slate-500">Loading…</p>;
 
   const editable = app.status === "draft" || app.status === "resubmission_requested";
-  const isOwner = user?.email === app.applicant_email;
+  // Compare by applicant ID, not email: phone-only accounts have a null
+  // email, so an email comparison would mis-match (or match everyone).
+  const isOwner = user?.id === app.applicant_id;
 
   const upload = async () => {
     if (!file || !id) return;

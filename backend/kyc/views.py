@@ -62,6 +62,11 @@ class RegisterView(generics.CreateAPIView):
         user = serializer.save()
         # Hard email verification: the account exists but cannot log in until
         # the OTP emailed here is confirmed (/api/auth/verify-email/).
+        # Phone-only accounts have no email to verify, so skip the OTP — they
+        # are immediately usable (email_verified stays False but the login
+        # gate only applies to accounts that have an email).
+        if not user.email:
+            return
         try:
             issue_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
         except Exception:

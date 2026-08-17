@@ -1,3 +1,5 @@
+import { isValidPhoneNumber } from "react-phone-number-input";
+
 import type { ApplicationPayload } from "./types";
 import { isDisposableEmail } from "./disposableEmails";
 
@@ -172,6 +174,20 @@ export function validatePhone(value: string): string | null {
   return null;
 }
 
+/**
+ * Strict check for forms using the country-code picker (PhoneInputField),
+ * which emits E.164 ("+91…"). libphonenumber verifies the number is valid
+ * for its country (e.g. India needs 10 digits after +91). Login keeps the
+ * lenient validatePhone because identifiers are typed free-form.
+ */
+export function validateE164Phone(value: string): string | null {
+  if (isBlank(value)) return "Phone is required.";
+  if (!isValidPhoneNumber(value)) {
+    return "Enter a valid phone number for the selected country.";
+  }
+  return null;
+}
+
 export function validateDateOfBirth(value: string): string | null {
   if (isBlank(value)) return "Date of birth is required.";
   if (!isValidISODate(value)) return "Enter a valid date.";
@@ -228,7 +244,7 @@ export function validateApplication(
   check("full_name", validateRequired(form.full_name, "Full name", 255));
   check("date_of_birth", validateDateOfBirth(form.date_of_birth));
   check("nationality", validateRequired(form.nationality, "Nationality", 100));
-  check("phone", validatePhone(form.phone));
+  check("phone", validateE164Phone(form.phone));
   check("address_line1", validateRequired(form.address_line1, "Address line 1", 255));
   check("address_line2", validateOptional(form.address_line2, "Address line 2", 255));
   check("city", validateRequired(form.city, "City", 100));

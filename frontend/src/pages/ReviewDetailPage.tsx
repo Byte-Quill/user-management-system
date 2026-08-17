@@ -78,7 +78,7 @@ export default function ReviewDetailPage() {
             ← Back to queue
           </Link>
           <h1 className="mt-1 text-2xl font-bold">{app.full_name}</h1>
-          <p className="text-sm text-slate-500">{app.applicant_email}</p>
+          <p className="text-sm text-slate-500">{app.applicant_email ?? app.phone}</p>
         </div>
         <StatusBadge status={app.status} />
       </div>

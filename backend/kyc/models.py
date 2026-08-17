@@ -3,7 +3,7 @@ import secrets
 import uuid
 
 from django.conf import settings
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, UserManager as DjangoUserManager
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.core.signing import TimestampSigner
@@ -75,6 +75,22 @@ def validate_file_content(file_obj: UploadedFile):
             raise ValidationError("PDF file appears truncated or malformed.")
 
 
+class UserManager(DjangoUserManager):
+    """User manager that treats email as optional.
+
+    Django's default ``normalize_email`` coerces ``None``/``""`` to ``""``,
+    which would store empty-string emails and defeat the nullable-unique
+    semantics. Returning ``None`` instead keeps phone-only accounts at
+    ``email IS NULL`` (Postgres allows multiple NULLs in a unique column).
+    """
+
+    @classmethod
+    def normalize_email(cls, email):
+        if not email:
+            return None
+        return super().normalize_email(email)
+
+
 class User(AbstractUser):
     """Custom user with a role for the KYC workflow.
 
@@ -94,7 +110,12 @@ class User(AbstractUser):
         OTHER = "other", "Other"
         PREFER_NOT_TO_SAY = "prefer_not_to_say", "Prefer not to say"
 
-    email = models.EmailField(unique=True)
+    objects = UserManager()
+
+    # Optional: an account needs at least one of email/phone (enforced by
+    # RegisterSerializer.validate). Nullable so phone-only accounts can exist;
+    # Postgres unique constraints allow multiple NULLs.
+    email = models.EmailField(null=True, blank=True, unique=True)
     role = models.CharField(
         max_length=20, choices=Role.choices, default=Role.APPLICANT
     )
@@ -126,7 +147,8 @@ class User(AbstractUser):
     REQUIRED_FIELDS = []
 
     def __str__(self):
-        return f"{self.email} ({self.role})"
+        identifier = self.email or self.phone or self.username
+        return f"{identifier} ({self.role})"
 
     @property
     def is_reviewer(self):

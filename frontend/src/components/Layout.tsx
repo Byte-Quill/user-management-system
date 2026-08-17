@@ -29,7 +29,7 @@ export default function Layout() {
                     Review Queue
                   </Link>
                 )}
-                <span className="text-slate-400" title={user.email}>
+                <span className="text-slate-400" title={user.email ?? user.phone ?? ""}>
                   {user.username} · {user.role}
                 </span>
                 <button

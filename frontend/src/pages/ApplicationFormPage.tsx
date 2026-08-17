@@ -7,6 +7,7 @@ import { useAuth } from "../auth";
 import CountrySelect from "../components/CountrySelect";
 import DateOfBirthInput from "../components/DateOfBirthInput";
 import { Field, Select, TextInput } from "../components/Field";
+import PhoneInputField from "../components/PhoneInputField";
 import type { ApplicationPayload } from "../types";
 import { validateApplication } from "../validation";
 import type { FieldErrors } from "../validation";
@@ -105,7 +106,7 @@ export default function ApplicationFormPage() {
                 invalid={!!fieldErrors.nationality} />
             </Field>
             <Field label="Phone" error={fieldErrors.phone}>
-              <TextInput required value={form.phone} onChange={set("phone")} maxLength={30}
+              <PhoneInputField value={form.phone} onChange={set("phone")}
                 invalid={!!fieldErrors.phone} />
             </Field>
           </div>
