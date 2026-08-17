@@ -1,9 +1,11 @@
 import re
 from datetime import date
 
+import phonenumbers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from phonenumbers import NumberParseException
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -15,22 +17,44 @@ User = get_user_model()
 
 # Mirrors the SPA's validation.ts so the API is the source of truth:
 # direct API clients cannot bypass the business rules.
-PHONE_CHARS_RE = re.compile(r"^\+?[\d\s\-().]+$")
-PHONE_MIN_DIGITS = 7
-PHONE_MAX_DIGITS = 15
 DOB_MIN = date(1900, 1, 1)
 
 # Person names: Unicode letters plus spaces, hyphens, apostrophes, periods
 # ("O'Brien", "Anne-Marie", "M. K. Gandhi"). Digits and other symbols rejected.
 NAME_CHARS_RE = re.compile(r"^(?:[^\W\d_]|[ \-'.])+$", re.UNICODE)
 
+# Phone numbers are validated and normalised with libphonenumber (the
+# ``phonenumbers`` package) — the same metadata the SPA's country-code picker
+# uses, so client and server agree on what counts as a valid number. Input in
+# national format (no leading '+') is interpreted against this default region;
+# E164 input carries its own country code, so the region is only a fallback.
+DEFAULT_PHONE_REGION = "IN"
+
 
 def normalize_phone(value: str) -> str:
-    """Canonical phone form: '+' + digits when international, else digits only.
+    """Canonical E164 form (e.g. "+919876543210") via libphonenumber.
 
     Storing one canonical form is what makes the unique constraint actually
     catch duplicates entered as "+91 98765 43210" vs "9876543210" vs
-    "(98765) 432-10".
+    "(98765) 432-10". Raises ``ValueError`` when the input is not a valid
+    number for the default region.
+    """
+    try:
+        parsed = phonenumbers.parse(value.strip(), DEFAULT_PHONE_REGION)
+    except NumberParseException as exc:
+        raise ValueError("Enter a valid phone number.") from exc
+    if not phonenumbers.is_valid_number(parsed):
+        raise ValueError("Enter a valid phone number for the selected country.")
+    return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+
+
+def legacy_phone_key(value: str) -> str:
+    """Pre-libphonenumber canonical form, kept for backwards-compatible lookups.
+
+    Rows created before the libphonenumber switch may store national-format
+    numbers as bare digits ("9876543210") rather than E164. Login still
+    resolves those so existing accounts are never locked out by the stricter
+    normalisation.
     """
     digits = re.sub(r"\D", "", value)
     return f"+{digits}" if value.strip().startswith("+") else digits
@@ -206,14 +230,10 @@ class RegisterSerializer(serializers.ModelSerializer):
         trimmed = value.strip()
         if not trimmed:
             return None
-        if not PHONE_CHARS_RE.match(trimmed):
-            raise serializers.ValidationError(
-                "Enter a valid phone number (digits, spaces, + - ( ) .)."
-            )
-        digits = re.sub(r"\D", "", trimmed)
-        if not PHONE_MIN_DIGITS <= len(digits) <= PHONE_MAX_DIGITS:
-            raise serializers.ValidationError("Phone must contain 7-15 digits.")
-        normalized = normalize_phone(trimmed)
+        try:
+            normalized = normalize_phone(trimmed)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
         # Explicitly declared fields do not receive the ModelSerializer's
         # UniqueValidator, so enforce uniqueness here — otherwise a duplicate
         # hits the DB constraint and surfaces as a 500 instead of a 400.
@@ -386,14 +406,11 @@ class KYCApplicationSerializer(serializers.ModelSerializer):
 
     def validate_phone(self, value):
         trimmed = value.strip()
-        if not PHONE_CHARS_RE.match(trimmed):
-            raise serializers.ValidationError(
-                "Enter a valid phone number (digits, spaces, + - ( ) .)."
-            )
-        digits = re.sub(r"\D", "", trimmed)
-        if not (PHONE_MIN_DIGITS <= len(digits) <= PHONE_MAX_DIGITS):
-            raise serializers.ValidationError("Phone must contain 7-15 digits.")
-        return value
+        try:
+            # Store the canonical E164 form, matching the registration path.
+            return normalize_phone(trimmed)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
     def validate(self, attrs):
         request = self.context.get("request")

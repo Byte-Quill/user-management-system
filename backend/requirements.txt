@@ -26,5 +26,11 @@ psycopg[binary]==3.3.4
 dj-database-url==3.1.2
 python-dotenv==1.2.2
 python-json-logger==3.3.0
+# Phone validation/normalisation (libphonenumber port) — the same metadata the
+# SPA's country-code picker uses, so client and server agree on validity.
+phonenumbers==9.0.37
+# Community-maintained disposable/burner email domain blocklist (~8k domains),
+# replacing the old hand-curated snapshot. Bump to pick up new providers.
+disposable-email-domains==0.0.237
 # Caching/throttling uses Django's database cache backend (Postgres-backed);
 # no Redis service or client is required.

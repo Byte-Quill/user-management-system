@@ -26,15 +26,21 @@ class EmailOrPhoneBackend(ModelBackend):
 
         # Lazy import: serializers imports models at module load, so importing
         # it here (at call time) avoids a circular import at startup.
-        from .serializers import PHONE_CHARS_RE, normalize_phone
+        from .serializers import legacy_phone_key, normalize_phone
 
         identifier = username.strip()
         if "@" in identifier:
             user = UserModel.objects.filter(email__iexact=identifier).first()
-        elif PHONE_CHARS_RE.match(identifier):
-            user = UserModel.objects.filter(phone=normalize_phone(identifier)).first()
         else:
-            user = None
+            # Treat as a phone number. Resolve against both the canonical E164
+            # form and the legacy digits-only form so accounts created before
+            # the libphonenumber switch can still sign in.
+            candidates = {legacy_phone_key(identifier)}
+            try:
+                candidates.add(normalize_phone(identifier))
+            except ValueError:
+                pass
+            user = UserModel.objects.filter(phone__in=candidates).first()
 
         if user is None:
             # Run the password hasher anyway to keep response timing similar
