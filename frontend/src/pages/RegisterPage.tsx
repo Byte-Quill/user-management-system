@@ -67,7 +67,7 @@ const FIELD_VALIDATORS: Record<FieldKey, (form: RegisterForm) => string | null> 
   middle_name: (f) => validateName(f.middle_name, "Middle name", false),
   last_name: (f) => validateName(f.last_name, "Last name"),
   // Email and phone are each optional; the at-least-one rule is checked in
-  // validateStep. Empty values skip their own validator.
+  // computeStepErrors. Empty values skip their own validator.
   email: (f) => (f.email.trim() ? validateRegistrationEmail(f.email) : null),
   phone: (f) => (f.phone.trim() ? validateE164Phone(f.phone) : null),
   gender: (f) => validateGender(f.gender),
@@ -146,35 +146,21 @@ export default function RegisterPage() {
     return errors;
   };
 
-  /** Validate one step; shows its errors and reports whether it passed. */
-  const validateStep = (index: number): boolean => {
-    const errors = computeStepErrors(index);
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors);
-      return false;
-    }
-    return true;
-  };
+  // Per-step validity for the current form — drives the ✓ indicators and
+  // gates the register action: "Create account" only appears once every
+  // required field across all steps is filled.
+  const stepErrors = STEPS.map((_s, i) => computeStepErrors(i));
+  const firstInvalidStep = stepErrors.findIndex(
+    (errors) => Object.keys(errors).length > 0,
+  );
+  const canRegister = firstInvalidStep === -1;
 
-  /** Jump to any step from the indicator. Moving back is always allowed;
-   *  moving forward requires every earlier step to be valid — otherwise the
-   *  user is dropped on the first failing step with its errors shown. */
+  /** Jump to any step from the indicator — navigation is free in both
+   *  directions, even with empty fields; requirements are only enforced
+   *  when creating the account. */
   const goToStep = (target: number) => {
     if (busy || target === step) return;
     setError("");
-    if (target < step) {
-      setFieldErrors({});
-      setStep(target);
-      return;
-    }
-    for (let i = 0; i < target; i++) {
-      const errors = computeStepErrors(i);
-      if (Object.keys(errors).length > 0) {
-        setFieldErrors(errors);
-        if (i !== step) setStep(i);
-        return;
-      }
-    }
     setFieldErrors({});
     setStep(target);
   };
@@ -188,18 +174,16 @@ export default function RegisterPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
-    // Multi-step: Enter/submit advances until the final step.
+    // Multi-step: Enter/submit advances freely until the final step —
+    // navigation never requires input; only creating the account does.
     if (step < STEPS.length - 1) {
-      if (!validateStep(step)) return;
       setStep(step + 1);
       return;
     }
-    // Final step: re-validate every step — with free navigation the user may
-    // have jumped around or edited earlier sections after passing them.
-    for (let i = 0; i < STEPS.length; i++) {
-      const errors = computeStepErrors(i);
-      if (Object.keys(errors).length > 0) {
-        setFieldErrors(errors);
+    // Final step: every step must pass before the account is created.
+    for (let i = 0; i < STEPS.length; i += 1) {
+      if (Object.keys(stepErrors[i]).length > 0) {
+        setFieldErrors(stepErrors[i]);
         setStep(i);
         return;
       }
@@ -270,42 +254,47 @@ export default function RegisterPage() {
           {/* Step indicator + progress bar */}
           <div>
             <div className="mb-2 flex items-start justify-between">
-              {STEPS.map((s, i) => (
-                <button
-                  key={s.title}
-                  type="button"
-                  onClick={() => goToStep(i)}
-                  disabled={busy}
-                  aria-current={i === step ? "step" : undefined}
-                  aria-label={`Go to step ${i + 1}: ${s.title}`}
-                  className="flex w-1/3 cursor-pointer flex-col items-center gap-1 disabled:cursor-not-allowed"
-                >
-                  <span
-                    className={
-                      "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-colors " +
-                      (i < step
-                        ? "bg-blue-600 text-white hover:bg-blue-700"
-                        : i === step
-                          ? "border-2 border-blue-600 bg-white text-blue-600"
-                          : "border border-slate-300 bg-white text-slate-400 hover:border-blue-400 hover:text-blue-500")
-                    }
+              {STEPS.map((s, i) => {
+                // ✓ means the step's requirements are met (not just visited).
+                const done =
+                  i !== step && Object.keys(stepErrors[i]).length === 0;
+                return (
+                  <button
+                    key={s.title}
+                    type="button"
+                    onClick={() => goToStep(i)}
+                    disabled={busy}
+                    aria-current={i === step ? "step" : undefined}
+                    aria-label={`Go to step ${i + 1}: ${s.title}`}
+                    className="flex w-1/3 cursor-pointer flex-col items-center gap-1 disabled:cursor-not-allowed"
                   >
-                    {i < step ? "✓" : i + 1}
-                  </span>
-                  <span
-                    className={
-                      "text-center text-[11px] leading-tight " +
-                      (i === step
-                        ? "font-medium text-blue-700"
-                        : i < step
-                          ? "font-medium text-slate-700"
-                          : "text-slate-400")
-                    }
-                  >
-                    {s.title}
-                  </span>
-                </button>
-              ))}
+                    <span
+                      className={
+                        "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-colors " +
+                        (done
+                          ? "bg-blue-600 text-white hover:bg-blue-700"
+                          : i === step
+                            ? "border-2 border-blue-600 bg-white text-blue-600"
+                            : "border border-slate-300 bg-white text-slate-400 hover:border-blue-400 hover:text-blue-500")
+                      }
+                    >
+                      {done ? "✓" : i + 1}
+                    </span>
+                    <span
+                      className={
+                        "text-center text-[11px] leading-tight " +
+                        (i === step
+                          ? "font-medium text-blue-700"
+                          : done
+                            ? "font-medium text-slate-700"
+                            : "text-slate-400")
+                      }
+                    >
+                      {s.title}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
             <div
               className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200"
@@ -527,6 +516,19 @@ export default function RegisterPage() {
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
+          {step === STEPS.length - 1 && !canRegister && (
+            <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+              Some required fields are still missing.{" "}
+              <button
+                type="button"
+                onClick={() => goToStep(firstInvalidStep)}
+                className="font-semibold underline hover:text-amber-950"
+              >
+                Go to {STEPS[firstInvalidStep].title}
+              </button>
+            </div>
+          )}
+
           <div className="flex gap-3">
             {step > 0 && (
               <button
@@ -538,13 +540,24 @@ export default function RegisterPage() {
                 Back
               </button>
             )}
-            <button
-              type="submit"
-              disabled={busy}
-              className="flex-1 rounded bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {busy ? "Creating…" : step < STEPS.length - 1 ? "Next" : "Create account"}
-            </button>
+            {step < STEPS.length - 1 && (
+              <button
+                type="submit"
+                disabled={busy}
+                className="flex-1 rounded bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Next
+              </button>
+            )}
+            {step === STEPS.length - 1 && canRegister && (
+              <button
+                type="submit"
+                disabled={busy}
+                className="flex-1 rounded bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {busy ? "Creating…" : "Create account"}
+              </button>
+            )}
           </div>
         </form>
 
