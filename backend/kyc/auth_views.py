@@ -19,6 +19,7 @@ from allauth.socialaccount.models import SocialAccount
 from allauth.socialaccount.providers.oauth2.client import OAuth2Error
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from rest_framework import status
@@ -29,8 +30,15 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .access import GoogleLoginThrottle, LoginIPThrottle, LoginThrottle
-from .models import generate_user_id
+from .access import (
+    GoogleLoginThrottle,
+    LoginIPThrottle,
+    LoginThrottle,
+    OTPRequestThrottle,
+    OTPVerifyThrottle,
+)
+from .models import EmailOTP, generate_user_id
+from .otp import request_otp, verify_otp
 from .serializers import EmailTokenObtainPairSerializer
 
 logger = logging.getLogger("kyc.auth")
@@ -210,6 +218,11 @@ def _resolve_google_user(request, sociallogin):
                 user=user, provider=provider, uid=uid,
                 extra_data=sociallogin.account.extra_data,
             )
+            # Google proved ownership of this email — that satisfies the
+            # email-verification gate even if the user never entered an OTP.
+            if not user.email_verified:
+                user.email_verified = True
+                user.save(update_fields=["email_verified"])
         return user
 
     # New applicant. Auto-generate the public User ID (users never pick one).
@@ -221,6 +234,8 @@ def _resolve_google_user(request, sociallogin):
             first_name=sociallogin.user.first_name,
             last_name=sociallogin.user.last_name,
             role=User.Role.APPLICANT,
+            # Google proved ownership of the email — verified by definition.
+            email_verified=True,
         )
         SocialAccount.objects.create(
             user=user, provider=provider, uid=uid,
@@ -323,3 +338,115 @@ class GoogleAuthView(APIView):
         response = Response({"access": str(refresh.access_token)})
         _set_refresh_cookie(response, str(refresh))
         return response
+
+
+# --- Email OTP: signup verification + password reset ------------------------
+#
+# Enumeration safety: the request/resend endpoints ALWAYS return the same 200
+# regardless of whether the email exists — otherwise they would be a free
+# account-existence oracle. The verify/confirm endpoints only reveal whether
+# a *submitted code* matched, which leaks nothing about other accounts.
+
+
+def _find_user_by_email(email: str):
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    return User.objects.filter(email__iexact=email).first()
+
+
+class VerifyEmailView(APIView):
+    """Verify the signup OTP and unlock the account for password login."""
+
+    permission_classes = (AllowAny,)
+    throttle_classes = [OTPVerifyThrottle]
+
+    def post(self, request):
+        email = (request.data.get("email") or "").strip()
+        code = (request.data.get("code") or "").strip()
+        if not email or not code:
+            return Response(
+                {"detail": "Email and code are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = _find_user_by_email(email)
+        if user is None or not verify_otp(
+            user, EmailOTP.Purpose.VERIFY_EMAIL, code
+        ):
+            return Response(
+                {"detail": "Invalid or expired code."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not user.email_verified:
+            user.email_verified = True
+            user.save(update_fields=["email_verified"])
+        return Response({"detail": "Email verified. You can sign in now."})
+
+
+class ResendVerificationView(APIView):
+    """Resend the signup OTP (generic 200; cooldown enforced server-side)."""
+
+    permission_classes = (AllowAny,)
+    throttle_classes = [OTPRequestThrottle]
+
+    def post(self, request):
+        user = _find_user_by_email(request.data.get("email"))
+        if user is not None and not user.email_verified:
+            request_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
+        return Response({"detail": "If the account needs verification, a code was sent."})
+
+
+class PasswordResetRequestView(APIView):
+    """Send a password-reset OTP (generic 200; works for Google-only users)."""
+
+    permission_classes = (AllowAny,)
+    throttle_classes = [OTPRequestThrottle]
+
+    def post(self, request):
+        user = _find_user_by_email(request.data.get("email"))
+        if user is not None:
+            request_otp(user, EmailOTP.Purpose.RESET_PASSWORD)
+        return Response(
+            {"detail": "If an account exists for that email, a reset code was sent."}
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    """Consume the reset OTP and set a new password.
+
+    The OTP was delivered to the account's inbox, which proves ownership of
+    the email — so this also marks the email verified (unblocks unverified
+    signups whose only recovery path is the reset flow).
+    """
+
+    permission_classes = (AllowAny,)
+    throttle_classes = [OTPVerifyThrottle]
+
+    def post(self, request):
+        email = (request.data.get("email") or "").strip()
+        code = (request.data.get("code") or "").strip()
+        password = request.data.get("new_password") or ""
+        if not email or not code or not password:
+            return Response(
+                {"detail": "Email, code and new password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = _find_user_by_email(email)
+        if user is None or not verify_otp(
+            user, EmailOTP.Purpose.RESET_PASSWORD, code
+        ):
+            return Response(
+                {"detail": "Invalid or expired code."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            validate_password(password, user=user)
+        except DjangoValidationError as exc:
+            return Response(
+                {"new_password": exc.messages}, status=status.HTTP_400_BAD_REQUEST
+            )
+        user.set_password(password)
+        if not user.email_verified:
+            user.email_verified = True
+        user.save(update_fields=["password", "email_verified"])
+        return Response({"detail": "Password updated. You can sign in now."})

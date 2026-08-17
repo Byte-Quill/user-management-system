@@ -34,6 +34,9 @@ class Command(BaseCommand):
                 "role": User.Role.ADMIN,
                 "is_staff": True,
                 "is_superuser": True,
+                # Seeded accounts are trusted local-dev fixtures; skip the
+                # email-OTP gate so they can log in without a mail server.
+                "email_verified": True,
             },
         )
         if created:
@@ -42,7 +45,12 @@ class Command(BaseCommand):
 
         reviewer, created = User.objects.get_or_create(
             email="reviewer@kyc.local",
-            defaults={"username": "reviewer", "role": User.Role.REVIEWER, "is_staff": True},
+            defaults={
+                "username": "reviewer",
+                "role": User.Role.REVIEWER,
+                "is_staff": True,
+                "email_verified": True,
+            },
         )
         if created:
             reviewer.set_password("Review@123")
@@ -57,6 +65,7 @@ class Command(BaseCommand):
                 "last_name": "Applicant",
                 "phone": "+919876543210",
                 "gender": User.Gender.PREFER_NOT_TO_SAY,
+                "email_verified": True,
             },
         )
         if created:

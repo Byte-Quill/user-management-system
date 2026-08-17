@@ -14,6 +14,8 @@ export interface User {
   phone: string | null;
   gender: Gender;
   role: Role;
+  /** False until the signup OTP is confirmed; password login is blocked. */
+  email_verified: boolean;
 }
 
 export type ApplicationStatus =

@@ -52,6 +52,11 @@ services:
       # Google Sign-In (optional): OAuth "Web application" client ID from
       # Google Cloud Console. Unset/empty disables the endpoint.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # Transactional email (signup OTP, password reset) via Resend.
+      # Unset falls back to the console backend (DEBUG only) — set both for
+      # real delivery. Verify a sending domain in Resend first.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Login Portal <onboarding@resend.dev>}
     volumes:
       - media_data:/app/media
     depends_on:

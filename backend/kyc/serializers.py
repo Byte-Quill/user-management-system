@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import AuditLog, Document, KYCApplication, generate_user_id
@@ -83,7 +84,17 @@ class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
                 attrs["email"] = user.email
             # Unknown phone: leave the identifier as-is so authenticate()
             # fails with the same generic 401 as a wrong email.
-        return super().validate(attrs)
+        data = super().validate(attrs)
+        # Hard email verification: the password was right, but the account
+        # stays locked until the signup OTP proves inbox ownership. The
+        # specific error code is safe here — only someone who knows this
+        # account's password ever sees it, so it cannot enumerate *other*
+        # accounts.
+        if not self.user.email_verified:
+            raise PermissionDenied(
+                {"detail": "Verify your email to sign in.", "code": "email_not_verified"}
+            )
+        return data
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -193,6 +204,7 @@ class UserSerializer(serializers.ModelSerializer):
             "phone",
             "gender",
             "role",
+            "email_verified",
         )
         read_only_fields = fields
 

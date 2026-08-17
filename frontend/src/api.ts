@@ -133,6 +133,34 @@ export const register = (payload: {
 }) =>
   request<User>("/auth/register/", { method: "POST", body: JSON.stringify(payload) });
 
+/** Confirm the signup OTP; unlocks password login for the account. */
+export const verifyEmail = (email: string, code: string) =>
+  request<{ detail: string }>("/auth/verify-email/", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
+  });
+
+/** Ask for a fresh signup OTP (server enforces the 60s cooldown). */
+export const resendVerification = (email: string) =>
+  request<{ detail: string }>("/auth/verify-email/resend/", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+
+/** Ask for a password-reset OTP (always 200; no account enumeration). */
+export const requestPasswordReset = (email: string) =>
+  request<{ detail: string }>("/auth/password-reset/request/", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+
+/** Consume the reset OTP and set a new password. */
+export const confirmPasswordReset = (email: string, code: string, newPassword: string) =>
+  request<{ detail: string }>("/auth/password-reset/confirm/", {
+    method: "POST",
+    body: JSON.stringify({ email, code, new_password: newPassword }),
+  });
+
 export const fetchMe = () => request<User>("/auth/me/");
 export { refreshAccess };
 

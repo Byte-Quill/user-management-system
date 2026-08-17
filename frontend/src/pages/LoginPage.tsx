@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import * as api from "../api";
 import { GOOGLE_CLIENT_ID } from "../App";
@@ -8,13 +8,28 @@ import { useAuth } from "../auth";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 import { validateIdentifier } from "../validation";
 
+interface LoginLocationState {
+  email?: string;
+  verified?: boolean;
+  passwordReset?: boolean;
+}
+
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [identifier, setIdentifier] = useState("");
+  const location = useLocation();
+  const state = (location.state as LoginLocationState | null) ?? {};
+  const [identifier, setIdentifier] = useState(state.email ?? "");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState(
+    state.verified
+      ? "Email verified. You can sign in now."
+      : state.passwordReset
+        ? "Password updated. You can sign in now."
+        : ""
+  );
   const [busy, setBusy] = useState(false);
 
   const onSubmit = async (e: FormEvent) => {
@@ -25,12 +40,26 @@ export default function LoginPage() {
       return;
     }
     setError("");
+    setNotice("");
     setBusy(true);
     try {
       // The backend accepts email or phone in the `email` field.
       await login(identifier.trim(), password);
       navigate("/");
     } catch (err) {
+      if (err instanceof api.ApiError && err.status === 403) {
+        const body = err.body as { code?: string } | null;
+        if (body?.code === "email_not_verified") {
+          // Hard verification gate: route to the OTP page with the email
+          // prefilled. Only the password holder ever sees this, so it is
+          // not an enumeration leak.
+          setError("Verify your email to sign in.");
+          navigate("/verify-email", {
+            state: { email: identifier.includes("@") ? identifier.trim() : "" },
+          });
+          return;
+        }
+      }
       // Surface rate-limit feedback; keep auth failures generic (no user
       // enumeration via differing error messages).
       setError(
@@ -82,6 +111,7 @@ export default function LoginPage() {
             </div>
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
+          {notice && <p className="text-sm text-green-700">{notice}</p>}
           <button
             type="submit"
             disabled={busy}
@@ -90,6 +120,12 @@ export default function LoginPage() {
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
+
+        <p className="mt-3 text-center text-sm">
+          <Link to="/forgot-password" className="font-medium text-blue-600 hover:underline">
+            Forgot password?
+          </Link>
+        </p>
 
         {GOOGLE_CLIENT_ID && (
           <>

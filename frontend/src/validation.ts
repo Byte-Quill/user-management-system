@@ -85,6 +85,13 @@ export function validateIdentifier(value: string): string | null {
   return null;
 }
 
+/** 6-digit email OTP (mirrors kyc/otp.py OTP_LENGTH). */
+export function validateOtp(value: string): string | null {
+  if (isBlank(value)) return "Enter the 6-digit code.";
+  if (!/^\d{6}$/.test(value.trim())) return "The code must be exactly 6 digits.";
+  return null;
+}
+
 /** Mirrors Django's AUTH_PASSWORD_VALIDATORS (server enforces min length 8). */
 export function validatePassword(value: string): string | null {
   if (!value) return "Password is required.";

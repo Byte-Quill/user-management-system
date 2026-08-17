@@ -105,6 +105,11 @@ class User(AbstractUser):
     # Nullable so Google-provisioned users (no phone collected) can exist;
     # Postgres unique constraints allow multiple NULLs.
     phone = models.CharField(max_length=30, null=True, blank=True, unique=True)
+    # Hard email verification: password login is refused until the user proves
+    # ownership of their inbox with an OTP (see kyc/otp.py). Google users are
+    # verified by definition (Google proved ownership), and all users that
+    # existed before this field shipped were grandfathered by migration 0010.
+    email_verified = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
@@ -115,6 +120,43 @@ class User(AbstractUser):
     @property
     def is_reviewer(self):
         return self.role in (self.Role.REVIEWER, self.Role.ADMIN)
+
+
+class EmailOTP(models.Model):
+    """One-time email codes for signup verification and password reset.
+
+    Security properties (enforced by kyc/otp.py, not just by convention):
+      * the code is stored as an HMAC-SHA256 keyed with SECRET_KEY — a DB
+        leak alone never reveals codes (6 digits = 10^6 space, trivially
+        brute-forceable offline if hashed with plain SHA-256);
+      * single-use (``consumed_at``) with a bounded attempt counter;
+      * short TTL (``expires_at``);
+      * only the latest unconsumed OTP per (user, purpose) is valid — issuing
+        a new one invalidates the previous one.
+    """
+
+    class Purpose(models.TextChoices):
+        VERIFY_EMAIL = "verify_email", "Verify email"
+        RESET_PASSWORD = "reset_password", "Reset password"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="email_otps"
+    )
+    purpose = models.CharField(max_length=20, choices=Purpose.choices)
+    code_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["user", "purpose"]),
+        ]
+
+    def __str__(self):
+        return f"EmailOTP({self.purpose}, user={self.user_id})"
 
 
 class KYCApplication(models.Model):

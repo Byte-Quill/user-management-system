@@ -174,6 +174,7 @@ REST_FRAMEWORK = {
         "register": "5/hour",    # account creation, per IP
         "login_ip": "60/hour",   # login attempts per IP, across all emails
         "google_login": "60/hour",  # Google Sign-In attempts, per IP
+        "otp_verify": "10/hour",   # OTP verification attempts, per IP
         "download": "300/hour",  # signed document downloads, per IP
         "submit": "10/hour",
         "documents": "30/hour",
@@ -192,12 +193,32 @@ REST_FRAMEWORK = {
 LOGIN_THROTTLE_MAX_ATTEMPTS = 10
 LOGIN_THROTTLE_WINDOW_SECONDS = 10 * 60
 
+# Fixed window for the per-(email + IP) OTP request throttle
+# (kyc.access.OTPRequestThrottle): bounds email-bombing of one inbox and
+# rotation across inboxes from one IP.
+OTP_REQUEST_MAX = 5
+OTP_REQUEST_WINDOW_SECONDS = 60 * 60
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
 }
+
+# --- Email (Resend) ---------------------------------------------------------
+# OTP codes (signup verification, password reset) are delivered through the
+# Resend HTTP API via a custom Django backend (kyc/email.py). DEBUG defaults
+# to the console backend so local development works without an API key; the
+# test runner always swaps in the in-memory backend, so tests never send.
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend"
+    if DEBUG
+    else "kyc.email.ResendEmailBackend",
+)
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Login Portal <onboarding@resend.dev>")
 
 # --- django-allauth (Google Sign-In) -------------------------------------
 # allauth is used as a library: its Google provider verifies the OIDC ID
