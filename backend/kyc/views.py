@@ -50,13 +50,16 @@ class RegisterView(generics.CreateAPIView):
     throttle_classes = (RegisterThrottle,)
 
     def perform_create(self, serializer):
-        # Atomic: if sending the verification email fails, the account is
-        # rolled back rather than left stranded in an unverifiable state.
-        with transaction.atomic():
-            user = serializer.save()
-            # Hard email verification: the account exists but cannot log in
-            # until the OTP emailed here is confirmed (/api/auth/verify-email/).
-            issue_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
+        # Create the user first (committed), then issue the OTP. Deliberately
+        # NOT wrapped in a transaction: issue_otp performs an external HTTP
+        # send to Resend, and holding a DB connection open across a network
+        # call would tie up a gunicorn worker on a slow/hung send. If the
+        # email fails the account simply stays unverified and the user can
+        # recover via /api/auth/verify-email/resend/ — no stranded state.
+        user = serializer.save()
+        # Hard email verification: the account exists but cannot log in until
+        # the OTP emailed here is confirmed (/api/auth/verify-email/).
+        issue_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
 
 
 class MeView(generics.RetrieveAPIView):

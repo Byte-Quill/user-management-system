@@ -33,16 +33,18 @@ class ResendEmailBackend(BaseEmailBackend):
 
     def __init__(self, fail_silently=False, **kwargs):
         super().__init__(fail_silently=fail_silently)
-        api_key = getattr(settings, "RESEND_API_KEY", "")
-        if not api_key and not fail_silently:
+        self.api_key = getattr(settings, "RESEND_API_KEY", "")
+        if not self.api_key and not fail_silently:
             # Surface misconfiguration loudly at first send, not as a vague
             # 401 from the API.
             raise RuntimeError("RESEND_API_KEY is not configured.")
-        # The SDK reads the module-level key at call time.
-        resend.api_key = api_key
 
     def send_messages(self, email_messages):
         sent = 0
+        # Set the key per call (not in __init__): the SDK reads the
+        # module-level value at request time, and gunicorn workers are
+        # threaded — a per-instance attribute avoids cross-thread races.
+        resend.api_key = self.api_key
         for message in email_messages:
             try:
                 resend.Emails.send(

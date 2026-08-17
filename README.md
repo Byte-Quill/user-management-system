@@ -192,11 +192,13 @@ works for any account — including Google-only users setting their first
 password — and confirming a reset also marks the email verified (the code
 arrived in the account's inbox).
 
-OTP security: codes come from `secrets`, are stored only as SHA-256 hashes,
-expire after 10 minutes, allow 5 attempts, are single-use, and issuing a new
-code invalidates the previous one. Request/resend endpoints always return a
-generic 200 (no account enumeration) and are throttled per email+IP (5/hour)
-with a 60-second resend cooldown.
+OTP security: codes come from `secrets`, are stored only as HMAC-SHA256
+keyed with `SECRET_KEY` (a DB leak alone never reveals codes — plain SHA-256
+would be brute-forceable offline over the 10⁶ code space), expire after 10
+minutes, allow 5 attempts, are single-use (consumed atomically, race-safe),
+and issuing a new code invalidates the previous one. Request/resend
+endpoints always return a generic 200 (no account enumeration) and are
+throttled per email+IP (5/hour) with a 60-second resend cooldown.
 
 Set `RESEND_API_KEY` and a verified `DEFAULT_FROM_EMAIL` in production. Note:
 with an *unverified* domain Resend only delivers from `onboarding@resend.dev`

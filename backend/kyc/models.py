@@ -126,7 +126,9 @@ class EmailOTP(models.Model):
     """One-time email codes for signup verification and password reset.
 
     Security properties (enforced by kyc/otp.py, not just by convention):
-      * the code is stored as a SHA-256 hash — a DB leak never reveals codes;
+      * the code is stored as an HMAC-SHA256 keyed with SECRET_KEY — a DB
+        leak alone never reveals codes (6 digits = 10^6 space, trivially
+        brute-forceable offline if hashed with plain SHA-256);
       * single-use (``consumed_at``) with a bounded attempt counter;
       * short TTL (``expires_at``);
       * only the latest unconsumed OTP per (user, purpose) is valid — issuing
