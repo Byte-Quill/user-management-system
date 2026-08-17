@@ -16,8 +16,11 @@ class UserAdmin(BaseUserAdmin):
     fieldsets = BaseUserAdmin.fieldsets + (
         ("Profile", {"fields": ("middle_name", "phone", "gender")}),
         ("Role", {"fields": ("role",)}),
+        # Staff can verify manually when a user cannot complete the OTP flow
+        # (e.g. lost inbox access).
+        ("Email verification", {"fields": ("email_verified",)}),
     )
-    list_display = ("email", "username", "phone", "role", "is_staff")
+    list_display = ("email", "username", "phone", "role", "email_verified", "is_staff")
     list_filter = BaseUserAdmin.list_filter + ("role",)
 
 
