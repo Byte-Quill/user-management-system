@@ -40,7 +40,7 @@ a **100% free and open-source stack** — no paid services, no vendor lock-in.
 ```
 
 Documents are served by the backend through a permission-checked endpoint
-that issues one-hour signed download URLs (Django `TimestampSigner`), so
+that issues 15-minute signed download URLs (Django `TimestampSigner`), so
 browsers can download files without sending the JWT. Files are served with
 `Content-Disposition: attachment` — they are served on the app origin, and
 forcing a download prevents in-browser PDF JavaScript from running with the
@@ -56,19 +56,31 @@ user-management-system/
 │   ├── config/                 # settings, urls, wsgi
 │   ├── kyc/                    # main app
 │   │   ├── models.py           # User, KYCApplication, Document, AuditLog,
-│   │   │                       # audit logging + signed download tokens
+│   │   │                       # EmailOTP, audit logging + signed download tokens
 │   │   ├── views.py            # applications, documents, review, audit
-│   │   ├── auth_views.py       # cookie-based JWT login/refresh/logout
+│   │   ├── auth_views.py       # cookie-based JWT login/refresh/logout,
+│   │   │                       # Google Sign-In, email OTP endpoints
 │   │   ├── serializers.py      # DRF serializers (signed URLs for documents)
+│   │   ├── backends.py         # email-or-phone authentication backend
+│   │   ├── otp.py              # OTP issue/verify service (HMAC-keyed codes)
+│   │   ├── email.py            # Resend email backend
+│   │   ├── email_domains.py    # disposable/temp-mail domain blocklist
 │   │   ├── access.py           # role/ownership permissions + throttles
+│   │   ├── admin.py            # hardened Django admin
 │   │   ├── middleware.py       # request-ID middleware
 │   │   ├── cache.py            # Postgres-backed cache backend
 │   │   ├── health.py           # /healthz and /readyz probes
+│   │   ├── tests.py            # test suite
+│   │   ├── urls.py             # /api/ routes
 │   │   ├── management/commands/
 │   │   │   └── seed_demo.py            # demo users + sample data
 │   │   └── migrations/
+│   ├── scripts/
+│   │   └── gen_disposable_emails.py    # regenerates the frontend blocklist
 │   ├── Dockerfile              # python:3.13-slim image
 │   ├── docker-compose.yml      # self-hosted stack: Postgres + backend + nginx
+│   ├── docker-compose.tls.yml  # tls profile: Caddy edge + HTTPS mode
+│   ├── Caddyfile               # ACME TLS termination for the tls profile
 │   ├── pyproject.toml          # ruff lint/format config
 │   ├── entrypoint.sh
 │   └── requirements.txt
@@ -78,14 +90,22 @@ user-management-system/
 │   │   │                       # single-flight cookie refresh
 │   │   ├── auth.tsx            # auth context
 │   │   ├── types.ts            # types matching the backend API
+│   │   ├── validation.ts       # client-side validators mirroring backend rules
+│   │   ├── countries.ts        # ISO 3166-1 country list + flag emoji helper
+│   │   ├── disposableEmails.ts # disposable-domain blocklist (generated,
+│   │   │                       # mirrors backend/scripts/gen_disposable_emails.py)
 │   │   ├── components/         # Layout, Field, Pagination, StatusBadge,
-│   │   │                       # ApplicationSections (details/docs/audit)
+│   │   │                       # ApplicationSections (details/docs/audit),
+│   │   │                       # CountrySelect, DateOfBirthInput,
+│   │   │                       # PhoneInputField, GoogleSignInButton
 │   │   ├── hooks/              # usePaginatedList
 │   │   └── pages/              # Dashboard, ApplicationForm/Detail,
-│   │                           # ReviewQueue/Detail, Login, Register
+│   │                           # ReviewQueue/Detail, Login, Register,
+│   │                           # VerifyEmail, ForgotPassword
 │   ├── Dockerfile              # nginx static image (also proxies /api)
 │   ├── nginx.conf
 │   └── package.json
+├── docs/                       # security audit & remediation notes
 └── README.md
 ```
 
@@ -96,14 +116,17 @@ user-management-system/
 ```
 User (custom, email = USERNAME_FIELD)
   ├── username: auto-generated public User ID (PHIN-XXXXXXXX, never user-chosen)
-  ├── first/middle/last name, gender, phone (unique, canonical +digits form)
+  ├── email (unique, nullable) and phone (unique, nullable, canonical E.164)
+  │   — each optional at signup, but at least one is required
+  ├── first/middle/last name, gender, date of birth, nationality, address
+  ├── email_verified (OTP-confirmed; grandfathered/Google users = true)
   ├── role: applicant | reviewer | admin
   └── 1:N KYCApplication (as applicant)
 
 KYCApplication
   ├── applicant → User
   ├── status: draft | submitted | approved | rejected | resubmission_requested
-  ├── personal + address + ID fields (typed columns)
+  ├── personal + address + ID fields (typed columns; phone stored as E.164)
   ├── reviewer → User (nullable), review_notes, reviewed_at
   ├── 1:N Document
   └── 1:N AuditLog
@@ -179,11 +202,28 @@ Google accounts are always created as `applicant`; the ID token must carry a
 verified email, and inactive users are rejected. The endpoint is
 Origin-checked (login-CSRF) and per-IP throttled like password login.
 
+### Registration rules
+
+- **Email and phone are each optional, but at least one is required.**
+  Phone-only accounts skip email verification entirely; email accounts go
+  through the OTP gate below.
+- **Disposable/temp-mail domains are rejected** at registration using the
+  [`disposable-email-domains`](https://pypi.org/project/disposable-email-domains/)
+  blocklist (`kyc/email_domains.py`). The frontend mirrors the same list in
+  `src/disposableEmails.ts`, regenerated from the same package by
+  `backend/scripts/gen_disposable_emails.py`.
+- **Phone numbers are validated and normalized with libphonenumber**
+  (`phonenumbers`) to canonical E.164 (`+digits`), with `IN` as the fallback
+  region for national-format input. Login accepts legacy digits-only numbers
+  from before this change (`kyc/backends.py`).
+- Optional profile details (date of birth, nationality, address) can be
+  provided at signup and prefill the KYC application form.
+
 ### Email verification & password reset (Resend)
 
-Signup is **hard-verified**: registration emails a 6-digit OTP (via the
-Resend HTTP API, `kyc/email.py`) and password login returns `403` with
-`code: email_not_verified` until the user confirms it at
+Signup with an email is **hard-verified**: registration emails a 6-digit OTP
+(via the Resend HTTP API, `kyc/email.py`) and password login returns `403`
+with `code: email_not_verified` until the user confirms it at
 `POST /api/auth/verify-email/`. Users who existed before this feature shipped
 were grandfathered as verified by migration 0010; Google users are verified
 by definition (Google proved ownership), and staff can verify manually in the
@@ -245,7 +285,7 @@ the `Retry-After` wait time when it receives a 429.
 
 | Method | Endpoint                                     | Auth | Role                          | Description                          |
 | ------ | -------------------------------------------- | ---- | ----------------------------- | ------------------------------------ |
-| POST   | `/api/auth/register/`                        | ❌   | —                             | Register applicant (names, email, phone, gender); emails a verification OTP |
+| POST   | `/api/auth/register/`                        | ❌   | —                             | Register applicant (names, email and/or phone, gender, optional profile); emails a verification OTP for email signups |
 | POST   | `/api/auth/verify-email/`                    | ❌   | —                             | Confirm signup OTP → unlocks login   |
 | POST   | `/api/auth/verify-email/resend/`             | ❌   | —                             | Resend signup OTP (60s cooldown; generic 200) |
 | POST   | `/api/auth/password-reset/request/`          | ❌   | —                             | Email a password-reset OTP (generic 200) |
@@ -263,14 +303,14 @@ the `Retry-After` wait time when it receives a 429.
 | PATCH  | `/api/applications/{id}/`                    | ✅   | Applicant (draft only)        | Update draft                         |
 | POST   | `/api/applications/{id}/submit/`             | ✅   | Applicant                     | Submit for review                    |
 | POST   | `/api/applications/{id}/documents/`          | ✅   | Applicant                     | Upload document                      |
-| GET    | `/api/documents/{doc_id}/download/`          | ❌   | Signed token                | Download document (1-hour signed URL) |
+| GET    | `/api/documents/{doc_id}/download/`          | ❌   | Signed token                | Download document (15-minute signed URL) |
 | DELETE | `/api/applications/{id}/documents/{doc_id}/` | ✅   | Applicant                     | Delete document (file removed too)   |
 | POST   | `/api/applications/{id}/review/`             | ✅   | Reviewer / Admin              | approve / reject / request_resubmission |
 | GET    | `/api/applications/{id}/audit/`              | ✅   | Owner / Reviewer / Admin      | Audit trail (paginated)              |
 | GET    | `/api/review-queue/`                         | ✅   | Reviewer / Admin              | Pending review queue                 |
 
 Document uploads are validated for extension (jpg/jpeg/png/pdf), magic-byte
-content, and size (≤ 5 MB). Document downloads use one-hour signed URLs
+content, and size (≤ 5 MB). Document downloads use 15-minute signed URLs
 issued only to users who pass the ownership/role permission checks, so files
 can be downloaded without the JWT (served as attachments, see above).
 
@@ -282,7 +322,7 @@ can be downloaded without the JWT (served as attachments, see above).
 | ------------------- | ----------------------- | -------------------------------- |
 | `/`                 | `DashboardPage`         | Role-based overview              |
 | `/login`            | `LoginPage`             | Email/phone + password login, forgot-password link |
-| `/register`         | `RegisterPage`          | Registration (names, email, phone, gender, Google) |
+| `/register`         | `RegisterPage`          | Multi-step registration (names, email and/or phone, gender, optional profile, Google) |
 | `/verify-email`     | `VerifyEmailPage`       | Confirm the signup OTP (resend w/ cooldown) |
 | `/forgot-password`  | `ForgotPasswordPage`    | Email → OTP → new password wizard |
 | `/applications/new` | `ApplicationFormPage`   | Create/edit application          |
@@ -363,7 +403,7 @@ npm run dev                         # http://localhost:5173
 
 ```bash
 cd backend
-python manage.py test kyc           # 71 tests: auth, email OTP, Google Sign-In, flow, uploads, downloads, permissions, admin
+python manage.py test kyc           # 82 tests: auth, email OTP, Google Sign-In, flow, uploads, downloads, permissions, admin, cache
 ```
 
 Security posture and audit history: [docs/security-audit-2026-08-16.md](docs/security-audit-2026-08-16.md).

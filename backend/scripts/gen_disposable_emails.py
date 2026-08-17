@@ -1,5 +1,7 @@
 """Regenerate frontend/src/disposableEmails.ts from the SAME PyPI blocklist the
 backend uses, so the SPA mirror can never drift from the server rule."""
+from pathlib import Path
+
 from disposable_email_domains import blocklist
 
 domains = sorted(blocklist)
@@ -31,7 +33,7 @@ export function isDisposableEmail(email: string): boolean {
 '''
 
 out = header + "\n" + body + footer
-path = "/home/bisu/Documents/Personal Projects/user-managment/user-management-system/frontend/src/disposableEmails.ts"
+path = Path(__file__).resolve().parents[2] / "frontend/src/disposableEmails.ts"
 with open(path, "w") as f:
     f.write(out)
 print(f"wrote {len(domains)} domains -> {path}")
