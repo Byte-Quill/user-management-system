@@ -174,6 +174,7 @@ REST_FRAMEWORK = {
         "register": "5/hour",    # account creation, per IP
         "login_ip": "60/hour",   # login attempts per IP, across all emails
         "google_login": "60/hour",  # Google Sign-In attempts, per IP
+        "otp_verify": "10/hour",   # OTP verification attempts, per IP
         "download": "300/hour",  # signed document downloads, per IP
         "submit": "10/hour",
         "documents": "30/hour",
@@ -191,6 +192,12 @@ REST_FRAMEWORK = {
 # Fixed window for the per-credential login throttle (kyc.access.LoginThrottle).
 LOGIN_THROTTLE_MAX_ATTEMPTS = 10
 LOGIN_THROTTLE_WINDOW_SECONDS = 10 * 60
+
+# Fixed window for the per-(email + IP) OTP request throttle
+# (kyc.access.OTPRequestThrottle): bounds email-bombing of one inbox and
+# rotation across inboxes from one IP.
+OTP_REQUEST_MAX = 5
+OTP_REQUEST_WINDOW_SECONDS = 60 * 60
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),

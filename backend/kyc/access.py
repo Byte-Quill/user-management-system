@@ -104,6 +104,51 @@ class GoogleLoginThrottle(AnonRateThrottle):
     scope = "google_login"
 
 
+class OTPRequestThrottle(BaseThrottle):
+    """Per (email + IP) cap on OTP email requests (verify resend, reset request).
+
+    Email sending costs money and an unbounded endpoint would be an email
+    bomb aimed at arbitrary inboxes. Keying on email + IP bounds both a
+    single inbox being flooded and a single IP rotating through victims.
+    Fixed window of OTP_REQUEST_MAX per OTP_REQUEST_WINDOW_SECONDS.
+    """
+
+    timer = time.time
+
+    def allow_request(self, request, view):
+        ident = self.get_ident(request)
+        data = request.data
+        email = (data.get("email") or "").strip().lower() if hasattr(data, "get") else ""
+        self.key = f"otp-request-throttle:{email}:{ident}"
+        now = self.timer()
+        entry = cache.get(self.key)
+        if not isinstance(entry, dict) or entry.get("reset", 0) <= now:
+            entry = {"count": 0, "reset": now + settings.OTP_REQUEST_WINDOW_SECONDS}
+        self.reset_at = entry["reset"]
+        if entry["count"] >= settings.OTP_REQUEST_MAX:
+            return False
+        entry["count"] += 1
+        cache.set(self.key, entry, settings.OTP_REQUEST_WINDOW_SECONDS)
+        return True
+
+    def wait(self):
+        reset_at = getattr(self, "reset_at", None)
+        if reset_at is None:
+            return None
+        return max(0.0, reset_at - self.timer())
+
+
+class OTPVerifyThrottle(AnonRateThrottle):
+    """Per-IP cap on OTP verification attempts.
+
+    The per-OTP attempt counter (5) already bounds brute force of one code;
+    this additionally bounds an attacker rotating through many OTPs/emails
+    from one address.
+    """
+
+    scope = "otp_verify"
+
+
 class DownloadThrottle(ScopedRateThrottle):
     """Per-IP cap on signed document downloads (unauthenticated endpoint).
 

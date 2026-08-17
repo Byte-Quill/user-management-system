@@ -6,6 +6,10 @@ from .auth_views import (
     CookieTokenRefreshView,
     GoogleAuthView,
     LogoutView,
+    PasswordResetConfirmView,
+    PasswordResetRequestView,
+    ResendVerificationView,
+    VerifyEmailView,
 )
 from .views import (
     DocumentDownloadView,
@@ -25,6 +29,22 @@ urlpatterns = [
     path("auth/token/refresh/", CookieTokenRefreshView.as_view(), name="token_refresh"),
     path("auth/logout/", LogoutView.as_view(), name="logout"),
     path("auth/me/", MeView.as_view(), name="me"),
+    path("auth/verify-email/", VerifyEmailView.as_view(), name="verify_email"),
+    path(
+        "auth/verify-email/resend/",
+        ResendVerificationView.as_view(),
+        name="verify_email_resend",
+    ),
+    path(
+        "auth/password-reset/request/",
+        PasswordResetRequestView.as_view(),
+        name="password_reset_request",
+    ),
+    path(
+        "auth/password-reset/confirm/",
+        PasswordResetConfirmView.as_view(),
+        name="password_reset_confirm",
+    ),
     path("review-queue/", ReviewQueueView.as_view(), name="review_queue"),
     path(
         "documents/<uuid:doc_id>/download/",
