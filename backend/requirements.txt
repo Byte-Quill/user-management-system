@@ -8,6 +8,9 @@ django-cors-headers==4.9.0
 # [socialaccount] extra pulls in requests/PyJWT/cryptography/oauthlib.
 django-allauth==65.19.1
 requests==2.34.2
+# Transactional email (OTP codes) via the Resend HTTP API; wrapped by the
+# Django backend in kyc/email.py.
+resend==2.36.0
 PyJWT==2.13.0
 cryptography==50.0.0
 oauthlib==3.3.1
