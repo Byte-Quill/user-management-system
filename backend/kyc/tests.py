@@ -197,6 +197,40 @@ class AuthTests(APITestCase):
             self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, field)
             self.assertIn(field, res.data, field)
 
+    def test_register_rejects_disposable_email(self):
+        """Temp/burner mail providers are blocked at signup (KYC needs a
+        lasting inbox). The domain check is case-insensitive."""
+        cases = [
+            ("user@mailinator.com", "+919876500011"),
+            ("user@YOPMAIL.com", "+919876500012"),
+            ("x@10minutemail.com", "+919876500013"),
+        ]
+        for email, phone in cases:
+            res = self.client.post(
+                "/api/auth/register/", register_payload(email, phone=phone)
+            )
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, email)
+            self.assertIn("email", res.data, email)
+            self.assertFalse(User.objects.filter(email__iexact=email).exists(), email)
+
+    def test_register_allows_normal_email(self):
+        """A regular provider domain must not be caught by the blocklist."""
+        res = self.client.post(
+            "/api/auth/register/", register_payload("real.user@gmail.com")
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(User.objects.filter(email="real.user@gmail.com").exists())
+
+    def test_is_disposable_email_helper(self):
+        from kyc.email_domains import is_disposable_email
+
+        self.assertTrue(is_disposable_email("a@mailinator.com"))
+        self.assertTrue(is_disposable_email("a@GuerrillaMail.NET"))
+        self.assertFalse(is_disposable_email("a@gmail.com"))
+        self.assertFalse(is_disposable_email("a@kyc.local"))
+        # Malformed input (no @) is not this helper's concern.
+        self.assertFalse(is_disposable_email("not-an-email"))
+
     def test_register_accepts_optional_profile_fields(self):
         """DOB/nationality/address are optional but stored when provided."""
         res = self.client.post(

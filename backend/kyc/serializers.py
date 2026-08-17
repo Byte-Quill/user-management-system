@@ -8,6 +8,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from .email_domains import is_disposable_email
 from .models import AuditLog, Document, KYCApplication, generate_user_id
 
 User = get_user_model()
@@ -160,6 +161,17 @@ class RegisterSerializer(serializers.ModelSerializer):
             "country",
             "role",
         )
+
+    def validate_email(self, value):
+        # KYC accounts must be reachable long-term, so disposable / temp-mail
+        # providers are rejected at signup. EmailField already guarantees a
+        # syntactically valid address; this adds the domain blocklist check.
+        if is_disposable_email(value):
+            raise serializers.ValidationError(
+                "Disposable or temporary email addresses are not allowed. "
+                "Please use a permanent email address."
+            )
+        return value
 
     def validate_first_name(self, value):
         return validate_person_name(value, "First name")

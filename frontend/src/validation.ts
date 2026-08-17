@@ -1,4 +1,5 @@
 import type { ApplicationPayload } from "./types";
+import { isDisposableEmail } from "./disposableEmails";
 
 /**
  * Client-side validators mirroring the backend rules (kyc/models.py field
@@ -43,6 +44,21 @@ function todayISO(): string {
 export function validateEmail(value: string): string | null {
   if (isBlank(value)) return "Email is required.";
   if (!EMAIL_RE.test(value.trim())) return "Enter a valid email address.";
+  return null;
+}
+
+/**
+ * Registration-only email check: format + disposable/temp-mail blocklist.
+ * Mirrors RegisterSerializer.validate_email on the backend. Login, password
+ * reset and OTP verification intentionally use plain validateEmail so
+ * existing accounts are never locked out by a later blocklist change.
+ */
+export function validateRegistrationEmail(value: string): string | null {
+  const formatError = validateEmail(value);
+  if (formatError) return formatError;
+  if (isDisposableEmail(value.trim())) {
+    return "Disposable or temporary email addresses are not allowed. Please use a permanent email address.";
+  }
   return null;
 }
 

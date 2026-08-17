@@ -11,13 +11,13 @@ import GoogleSignInButton from "../components/GoogleSignInButton";
 import {
   GENDER_OPTIONS,
   validateConfirmPassword,
-  validateEmail,
   validateGender,
   validateName,
   validateOptional,
   validateOptionalDateOfBirth,
   validatePassword,
   validatePhone,
+  validateRegistrationEmail,
 } from "../validation";
 
 interface RegisterForm {
@@ -65,7 +65,7 @@ const FIELD_VALIDATORS: Record<FieldKey, (form: RegisterForm) => string | null> 
   first_name: (f) => validateName(f.first_name, "First name"),
   middle_name: (f) => validateName(f.middle_name, "Middle name", false),
   last_name: (f) => validateName(f.last_name, "Last name"),
-  email: (f) => validateEmail(f.email),
+  email: (f) => validateRegistrationEmail(f.email),
   phone: (f) => validatePhone(f.phone),
   gender: (f) => validateGender(f.gender),
   password: (f) => validatePassword(f.password),
