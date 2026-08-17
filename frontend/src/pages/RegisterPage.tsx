@@ -132,8 +132,8 @@ export default function RegisterPage() {
       });
     };
 
-  /** Validate one step; shows its errors and reports whether it passed. */
-  const validateStep = (index: number): boolean => {
+  /** Compute a step's errors without showing them. */
+  const computeStepErrors = (index: number): Partial<Record<FieldKey, string>> => {
     const errors: Partial<Record<FieldKey, string>> = {};
     for (const key of STEPS[index].fields) {
       const message = FIELD_VALIDATORS[key](form);
@@ -143,11 +143,40 @@ export default function RegisterPage() {
     if (index === 0 && !form.email.trim() && !form.phone.trim()) {
       errors.email = "Provide an email address or a phone number.";
     }
+    return errors;
+  };
+
+  /** Validate one step; shows its errors and reports whether it passed. */
+  const validateStep = (index: number): boolean => {
+    const errors = computeStepErrors(index);
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       return false;
     }
     return true;
+  };
+
+  /** Jump to any step from the indicator. Moving back is always allowed;
+   *  moving forward requires every earlier step to be valid — otherwise the
+   *  user is dropped on the first failing step with its errors shown. */
+  const goToStep = (target: number) => {
+    if (busy || target === step) return;
+    setError("");
+    if (target < step) {
+      setFieldErrors({});
+      setStep(target);
+      return;
+    }
+    for (let i = 0; i < target; i++) {
+      const errors = computeStepErrors(i);
+      if (Object.keys(errors).length > 0) {
+        setFieldErrors(errors);
+        if (i !== step) setStep(i);
+        return;
+      }
+    }
+    setFieldErrors({});
+    setStep(target);
   };
 
   const back = () => {
@@ -159,11 +188,21 @@ export default function RegisterPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!validateStep(step)) return;
     // Multi-step: Enter/submit advances until the final step.
     if (step < STEPS.length - 1) {
+      if (!validateStep(step)) return;
       setStep(step + 1);
       return;
+    }
+    // Final step: re-validate every step — with free navigation the user may
+    // have jumped around or edited earlier sections after passing them.
+    for (let i = 0; i < STEPS.length; i++) {
+      const errors = computeStepErrors(i);
+      if (Object.keys(errors).length > 0) {
+        setFieldErrors(errors);
+        setStep(i);
+        return;
+      }
     }
     setBusy(true);
     try {
@@ -232,15 +271,23 @@ export default function RegisterPage() {
           <div>
             <div className="mb-2 flex items-start justify-between">
               {STEPS.map((s, i) => (
-                <div key={s.title} className="flex w-1/3 flex-col items-center gap-1">
+                <button
+                  key={s.title}
+                  type="button"
+                  onClick={() => goToStep(i)}
+                  disabled={busy}
+                  aria-current={i === step ? "step" : undefined}
+                  aria-label={`Go to step ${i + 1}: ${s.title}`}
+                  className="flex w-1/3 cursor-pointer flex-col items-center gap-1 disabled:cursor-not-allowed"
+                >
                   <span
                     className={
-                      "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold " +
+                      "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-colors " +
                       (i < step
-                        ? "bg-blue-600 text-white"
+                        ? "bg-blue-600 text-white hover:bg-blue-700"
                         : i === step
                           ? "border-2 border-blue-600 bg-white text-blue-600"
-                          : "border border-slate-300 bg-white text-slate-400")
+                          : "border border-slate-300 bg-white text-slate-400 hover:border-blue-400 hover:text-blue-500")
                     }
                   >
                     {i < step ? "✓" : i + 1}
@@ -248,12 +295,16 @@ export default function RegisterPage() {
                   <span
                     className={
                       "text-center text-[11px] leading-tight " +
-                      (i <= step ? "font-medium text-slate-700" : "text-slate-400")
+                      (i === step
+                        ? "font-medium text-blue-700"
+                        : i < step
+                          ? "font-medium text-slate-700"
+                          : "text-slate-400")
                     }
                   >
                     {s.title}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
             <div
