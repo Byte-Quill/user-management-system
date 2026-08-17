@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import * as api from "../api";
 import Pagination from "../components/Pagination";

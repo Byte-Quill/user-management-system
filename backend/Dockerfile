@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DJANGO_SETTINGS_MODULE=config.settings
 
-# psycopg2-binary ships its own libpq, so no system build deps are needed.
+# psycopg[binary] ships its own libpq, so no system build deps are needed.
 WORKDIR /app
 
 COPY requirements.txt .

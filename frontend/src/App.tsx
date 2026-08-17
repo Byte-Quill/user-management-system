@@ -1,6 +1,6 @@
 import { GoogleOAuthProvider } from "@react-oauth/google";
 import { lazy, Suspense, type ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router";
 
 import { AuthProvider, useAuth } from "./auth";
 import Layout from "./components/Layout";
