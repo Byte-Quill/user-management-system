@@ -95,6 +95,8 @@ user-management-system/
 
 ```
 User (custom, email = USERNAME_FIELD)
+  ├── username: auto-generated public User ID (PHIN-XXXXXXXX, never user-chosen)
+  ├── first/middle/last name, gender, phone (unique, canonical +digits form)
   ├── role: applicant | reviewer | admin
   └── 1:N KYCApplication (as applicant)
 
@@ -215,8 +217,8 @@ the `Retry-After` wait time when it receives a 429.
 
 | Method | Endpoint                                     | Auth | Role                          | Description                          |
 | ------ | -------------------------------------------- | ---- | ----------------------------- | ------------------------------------ |
-| POST   | `/api/auth/register/`                        | ❌   | —                             | Register applicant                   |
-| POST   | `/api/auth/token/`                           | ❌   | —                             | Login → access token + refresh cookie |
+| POST   | `/api/auth/register/`                        | ❌   | —                             | Register applicant (names, email, phone, gender) |
+| POST   | `/api/auth/token/`                           | ❌   | —                             | Login (email **or phone**) → access token + refresh cookie |
 | POST   | `/api/auth/google/`                          | ❌   | —                             | Google Sign-In → same JWT session    |
 | POST   | `/api/auth/token/refresh/`                   | ❌   | —                             | Rotate refresh cookie → new access   |
 | POST   | `/api/auth/logout/`                          | ❌   | —                             | Blacklist refresh token, clear cookie |
@@ -247,8 +249,8 @@ can be downloaded without the JWT (served as attachments, see above).
 | Route               | Page                    | Purpose                          |
 | ------------------- | ----------------------- | -------------------------------- |
 | `/`                 | `DashboardPage`         | Role-based overview              |
-| `/login`            | `LoginPage`             | Email/password login             |
-| `/register`         | `RegisterPage`          | New applicant registration       |
+| `/login`            | `LoginPage`             | Email/phone + password login     |
+| `/register`         | `RegisterPage`          | Registration (names, email, phone, gender, Google) |
 | `/applications/new` | `ApplicationFormPage`   | Create/edit application          |
 | `/applications/:id` | `ApplicationDetailPage` | View, upload docs, submit        |
 | `/review`           | `ReviewQueuePage`       | Reviewer queue                   |
@@ -324,8 +326,10 @@ npm run dev                         # http://localhost:5173
 
 ```bash
 cd backend
-python manage.py test kyc           # 41 tests: auth, Google Sign-In, flow, uploads, downloads, permissions, admin
+python manage.py test kyc           # 52 tests: auth, Google Sign-In, flow, uploads, downloads, permissions, admin
 ```
+
+Security posture and audit history: [docs/security-audit-2026-08-16.md](docs/security-audit-2026-08-16.md).
 
 ---
 
@@ -349,6 +353,9 @@ docker compose up --build
 
 - nginx serves the SPA and proxies `/api` + `/media` to the backend, so the
   deployment is same-origin: no CORS configuration needed.
+- The base stack is plain HTTP and binds to `127.0.0.1:8080` only — it is
+  not reachable from the network, so cleartext cookies/PII cannot leak if
+  the host is exposed. Remote access requires the TLS profile below.
 - Documents persist in the `media_data` volume; the database in `pg_data`.
 - For production: use the TLS profile below, and back up both volumes
   (`pg_dump` + volume copy).
@@ -367,7 +374,9 @@ docker compose --profile tls -f docker-compose.yml -f docker-compose.tls.yml up 
 ```
 
 Caddy terminates TLS on 80/443; the plain-HTTP nginx container is bound to
-`127.0.0.1` only. For local HTTPS testing set `SITE_ADDRESS=localhost`
+`127.0.0.1` only. The profile also sets `DJANGO_NUM_PROXIES=2`
+(Caddy → nginx → backend) so IP-keyed rate limits still see the real client
+address. For local HTTPS testing set `SITE_ADDRESS=localhost`
 (Caddy uses its internal CA). If you terminate TLS with your own proxy
 instead, keep `DJANGO_SECURE_SSL_REDIRECT=false` only if that proxy already
 forces HTTPS and forwards `X-Forwarded-Proto`.

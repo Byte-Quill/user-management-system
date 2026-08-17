@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import AuditLog, Document, KYCApplication
+from .models import AuditLog, Document, KYCApplication, generate_user_id
 
 User = get_user_model()
 
@@ -17,6 +17,36 @@ PHONE_CHARS_RE = re.compile(r"^\+?[\d\s\-().]+$")
 PHONE_MIN_DIGITS = 7
 PHONE_MAX_DIGITS = 15
 DOB_MIN = date(1900, 1, 1)
+
+# Person names: Unicode letters plus spaces, hyphens, apostrophes, periods
+# ("O'Brien", "Anne-Marie", "M. K. Gandhi"). Digits and other symbols rejected.
+NAME_CHARS_RE = re.compile(r"^(?:[^\W\d_]|[ \-'.])+$", re.UNICODE)
+
+
+def normalize_phone(value: str) -> str:
+    """Canonical phone form: '+' + digits when international, else digits only.
+
+    Storing one canonical form is what makes the unique constraint actually
+    catch duplicates entered as "+91 98765 43210" vs "9876543210" vs
+    "(98765) 432-10".
+    """
+    digits = re.sub(r"\D", "", value)
+    return f"+{digits}" if value.strip().startswith("+") else digits
+
+
+def validate_person_name(value: str, label: str, required: bool = True) -> str:
+    value = value.strip()
+    if not value:
+        if required:
+            raise serializers.ValidationError(f"{label} is required.")
+        return ""
+    if len(value) > 150:
+        raise serializers.ValidationError(f"{label} must be at most 150 characters.")
+    if not NAME_CHARS_RE.match(value):
+        raise serializers.ValidationError(
+            f"{label} may only contain letters, spaces, hyphens, apostrophes and periods."
+        )
+    return value
 
 
 class PasswordField(serializers.CharField):
@@ -34,33 +64,101 @@ class PasswordField(serializers.CharField):
 
 
 class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """JWT serializer that authenticates with email instead of username.
+    """JWT serializer that authenticates with email (or phone) + password.
 
-    ``TokenObtainSerializer.validate`` already authenticates against
-    ``attrs[self.username_field]``, so pointing ``username_field`` at
-    ``email`` is all that is needed — no ``validate`` override required.
+    ``TokenObtainSerializer.validate`` authenticates against
+    ``attrs[self.username_field]``; ``username_field`` points at ``email``.
+    When the submitted identifier is a phone number it is normalized and
+    resolved to the account's email first, so authentication, error messages
+    and the email+IP login throttle behave exactly like email login.
     """
 
     username_field = "email"
 
+    def validate(self, attrs):
+        identifier = (attrs.get("email") or "").strip()
+        if identifier and "@" not in identifier and PHONE_CHARS_RE.match(identifier):
+            user = User.objects.filter(phone=normalize_phone(identifier)).first()
+            if user is not None:
+                attrs["email"] = user.email
+            # Unknown phone: leave the identifier as-is so authenticate()
+            # fails with the same generic 401 as a wrong email.
+        return super().validate(attrs)
+
 
 class RegisterSerializer(serializers.ModelSerializer):
+    """Account creation: email + phone + password + name + gender.
+
+    The public User ID (``username``) is auto-generated server-side — it is
+    never accepted from the client, so it cannot be squatted or probed.
+    """
+
     password = PasswordField()
     role = serializers.CharField(read_only=True)
+    username = serializers.CharField(read_only=True)
+    # AbstractUser's name fields are blank=True, which DRF would make
+    # optional; registration requires first and last names.
+    first_name = serializers.CharField(max_length=150)
+    middle_name = serializers.CharField(
+        max_length=150, required=False, allow_blank=True, default=""
+    )
+    last_name = serializers.CharField(max_length=150)
+    phone = serializers.CharField(max_length=30)
+    gender = serializers.ChoiceField(choices=User.Gender.choices)
 
     class Meta:
         model = User
-        fields = ("id", "email", "username", "password", "first_name", "last_name", "role")
+        fields = (
+            "id",
+            "email",
+            "username",
+            "password",
+            "first_name",
+            "middle_name",
+            "last_name",
+            "phone",
+            "gender",
+            "role",
+        )
+
+    def validate_first_name(self, value):
+        return validate_person_name(value, "First name")
+
+    def validate_middle_name(self, value):
+        return validate_person_name(value, "Middle name", required=False)
+
+    def validate_last_name(self, value):
+        return validate_person_name(value, "Last name")
+
+    def validate_phone(self, value):
+        trimmed = value.strip()
+        if not trimmed:
+            raise serializers.ValidationError("Phone is required.")
+        if not PHONE_CHARS_RE.match(trimmed):
+            raise serializers.ValidationError(
+                "Enter a valid phone number (digits, spaces, + - ( ) .)."
+            )
+        digits = re.sub(r"\D", "", trimmed)
+        if not PHONE_MIN_DIGITS <= len(digits) <= PHONE_MAX_DIGITS:
+            raise serializers.ValidationError("Phone must contain 7-15 digits.")
+        normalized = normalize_phone(trimmed)
+        # Explicitly declared fields do not receive the ModelSerializer's
+        # UniqueValidator, so enforce uniqueness here — otherwise a duplicate
+        # hits the DB constraint and surfaces as a 500 instead of a 400.
+        if User.objects.filter(phone=normalized).exists():
+            raise serializers.ValidationError("This phone number is already registered.")
+        return normalized
 
     def validate(self, attrs):
         # create_user() does not run Django's password validators, so enforce
         # AUTH_PASSWORD_VALIDATORS here. Passing an (unsaved) user lets the
-        # attribute-similarity validator compare against email/username.
+        # attribute-similarity validator compare against email/names/phone.
         user = User(
             email=attrs.get("email", ""),
-            username=attrs.get("username", ""),
             first_name=attrs.get("first_name", ""),
+            middle_name=attrs.get("middle_name", ""),
             last_name=attrs.get("last_name", ""),
+            phone=attrs.get("phone"),
         )
         try:
             validate_password(attrs["password"], user=user)
@@ -71,10 +169,13 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         return User.objects.create_user(
             email=validated_data["email"],
-            username=validated_data["username"],
+            username=generate_user_id(),
             password=validated_data["password"],
-            first_name=validated_data.get("first_name", ""),
-            last_name=validated_data.get("last_name", ""),
+            first_name=validated_data["first_name"],
+            middle_name=validated_data.get("middle_name", ""),
+            last_name=validated_data["last_name"],
+            phone=validated_data["phone"],
+            gender=validated_data["gender"],
             role=User.Role.APPLICANT,
         )
 
@@ -82,7 +183,17 @@ class RegisterSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ("id", "email", "username", "first_name", "last_name", "role")
+        fields = (
+            "id",
+            "email",
+            "username",
+            "first_name",
+            "middle_name",
+            "last_name",
+            "phone",
+            "gender",
+            "role",
+        )
         read_only_fields = fields
 
 

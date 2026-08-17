@@ -16,7 +16,7 @@ export default function Layout() {
       <header className="bg-slate-900 text-white shadow">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <Link to="/" className="text-lg font-bold tracking-tight">
-            KYC Portal
+            Login Portal
           </Link>
           <nav className="flex items-center gap-4 text-sm">
             {user && (
@@ -29,8 +29,8 @@ export default function Layout() {
                     Review Queue
                   </Link>
                 )}
-                <span className="text-slate-400">
-                  {user.email} · {user.role}
+                <span className="text-slate-400" title={user.email}>
+                  {user.username} · {user.role}
                 </span>
                 <button
                   onClick={handleLogout}

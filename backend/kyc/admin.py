@@ -11,10 +11,13 @@ class UserAdmin(BaseUserAdmin):
     # email field on the add form, admin-created users could never log in and
     # a second one would violate the unique constraint on the empty email.
     add_fieldsets = BaseUserAdmin.add_fieldsets + (
-        (None, {"classes": ("wide",), "fields": ("email",)}),
+        (None, {"classes": ("wide",), "fields": ("email", "phone", "gender")}),
     )
-    fieldsets = BaseUserAdmin.fieldsets + (("Role", {"fields": ("role",)}),)
-    list_display = ("email", "username", "role", "is_staff")
+    fieldsets = BaseUserAdmin.fieldsets + (
+        ("Profile", {"fields": ("middle_name", "phone", "gender")}),
+        ("Role", {"fields": ("role",)}),
+    )
+    list_display = ("email", "username", "phone", "role", "is_staff")
     list_filter = BaseUserAdmin.list_filter + ("role",)
 
 

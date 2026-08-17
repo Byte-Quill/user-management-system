@@ -3,12 +3,13 @@ import type { ChangeEvent, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
 import * as api from "../api";
+import { useAuth } from "../auth";
 import { Field, Select, TextInput } from "../components/Field";
 import type { ApplicationPayload } from "../types";
 import { validateApplication } from "../validation";
 import type { FieldErrors } from "../validation";
 
-const INITIAL: ApplicationPayload = {
+const EMPTY: ApplicationPayload = {
   full_name: "",
   date_of_birth: "",
   nationality: "",
@@ -25,8 +26,17 @@ const INITIAL: ApplicationPayload = {
 };
 
 export default function ApplicationFormPage() {
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState<ApplicationPayload>(INITIAL);
+  // Pre-fill what registration already collected (name + phone) so the
+  // applicant does not re-type identity data.
+  const [form, setForm] = useState<ApplicationPayload>(() => ({
+    ...EMPTY,
+    full_name: user
+      ? [user.first_name, user.middle_name, user.last_name].filter(Boolean).join(" ")
+      : "",
+    phone: user?.phone ?? "",
+  }));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<keyof ApplicationPayload>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);

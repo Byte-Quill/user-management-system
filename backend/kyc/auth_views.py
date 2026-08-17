@@ -13,7 +13,6 @@ import logging
 import re
 
 import requests
-from allauth.account.adapter import get_adapter as get_account_adapter
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.adapter import get_adapter as get_socialaccount_adapter
 from allauth.socialaccount.models import SocialAccount
@@ -31,6 +30,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .access import GoogleLoginThrottle, LoginIPThrottle, LoginThrottle
+from .models import generate_user_id
 from .serializers import EmailTokenObtainPairSerializer
 
 logger = logging.getLogger("kyc.auth")
@@ -212,15 +212,11 @@ def _resolve_google_user(request, sociallogin):
             )
         return user
 
-    # New applicant. Derive a unique username from the Google profile.
-    account_adapter = get_account_adapter(request)
-    username = account_adapter.generate_unique_username(
-        [sociallogin.user.first_name, sociallogin.user.last_name, email, "user"]
-    )
+    # New applicant. Auto-generate the public User ID (users never pick one).
     with transaction.atomic():
         user = User.objects.create_user(
             email=email,
-            username=username,
+            username=generate_user_id(),
             password=None,  # unusable: Google is the credential
             first_name=sociallogin.user.first_name,
             last_name=sociallogin.user.last_name,
