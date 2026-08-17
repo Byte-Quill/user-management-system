@@ -13,10 +13,12 @@ export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 const ApplicationDetailPage = lazy(() => import("./pages/ApplicationDetailPage"));
 const ApplicationFormPage = lazy(() => import("./pages/ApplicationFormPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 const ReviewDetailPage = lazy(() => import("./pages/ReviewDetailPage"));
 const ReviewQueuePage = lazy(() => import("./pages/ReviewQueuePage"));
+const VerifyEmailPage = lazy(() => import("./pages/VerifyEmailPage"));
 
 function PageLoader() {
   return <p className="p-8 text-center text-slate-500">Loading…</p>;
@@ -44,6 +46,8 @@ export default function App() {
         <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route
           element={
             <Protected>

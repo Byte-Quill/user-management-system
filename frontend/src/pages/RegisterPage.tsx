@@ -4,7 +4,6 @@ import { Link, useNavigate } from "react-router-dom";
 
 import * as api from "../api";
 import { GOOGLE_CLIENT_ID } from "../App";
-import { useAuth } from "../auth";
 import { Field, Select, TextInput } from "../components/Field";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 import {
@@ -37,7 +36,6 @@ const INITIAL: RegisterForm = {
 };
 
 export default function RegisterPage() {
-  const { login } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState<RegisterForm>(INITIAL);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof RegisterForm, string>>>({});
@@ -88,8 +86,9 @@ export default function RegisterPage() {
         phone: form.phone.trim(),
         gender: form.gender,
       });
-      await login(form.email, form.password);
-      navigate("/");
+      // Hard email verification: no auto-login — the user must confirm the
+      // OTP that was just emailed before password login works.
+      navigate("/verify-email", { state: { email: form.email.trim() } });
     } catch (err) {
       setError(api.errorMessage(err, "Registration failed. Please try again."));
     } finally {
