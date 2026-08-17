@@ -181,6 +181,28 @@ export default function RegisterPage() {
       // OTP that was just emailed before password login works.
       navigate("/verify-email", { state: { email: form.email.trim() } });
     } catch (err) {
+      // Map server-side field errors (duplicate email/phone, disposable
+      // email, …) onto the wizard: inline error on the field + jump back to
+      // the step that contains it, instead of one opaque message.
+      if (err instanceof api.ApiError && err.body && typeof err.body === "object") {
+        const body = err.body as Record<string, string | string[]>;
+        const errors: Partial<Record<FieldKey, string>> = {};
+        let firstStep = -1;
+        for (const [key, value] of Object.entries(body)) {
+          if (!(key in FIELD_VALIDATORS)) continue;
+          const fieldKey = key as FieldKey;
+          errors[fieldKey] = Array.isArray(value) ? value.join(" ") : String(value);
+          const stepIndex = STEPS.findIndex((s) => s.fields.includes(fieldKey));
+          if (stepIndex >= 0 && (firstStep === -1 || stepIndex < firstStep)) {
+            firstStep = stepIndex;
+          }
+        }
+        if (Object.keys(errors).length > 0) {
+          setFieldErrors(errors);
+          if (firstStep >= 0) setStep(firstStep);
+          return;
+        }
+      }
       setError(api.errorMessage(err, "Registration failed. Please try again."));
     } finally {
       setBusy(false);

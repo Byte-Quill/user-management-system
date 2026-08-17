@@ -42,13 +42,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const tokens = await api.login(email, password);
     api.setTokens(tokens.access);
-    setUser(await api.fetchMe());
+    try {
+      setUser(await api.fetchMe());
+    } catch (err) {
+      // Token issued but profile fetch failed: don't leave a half-session
+      // (token set, user null). Clear and let the page surface the error.
+      api.clearTokens();
+      throw err;
+    }
   }, []);
 
   const loginWithGoogle = useCallback(async (credential: string) => {
     const tokens = await api.googleLogin(credential);
     api.setTokens(tokens.access);
-    setUser(await api.fetchMe());
+    try {
+      setUser(await api.fetchMe());
+    } catch (err) {
+      api.clearTokens();
+      throw err;
+    }
   }, []);
 
   const logout = useCallback(() => {

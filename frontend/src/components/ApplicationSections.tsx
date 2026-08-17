@@ -99,14 +99,18 @@ export function DocumentList({
 /** Immutable audit-trail timeline; pass pagination as children when needed. */
 export function AuditTrail({
   entries,
+  error,
   children,
 }: {
   entries: AuditEntry[];
+  /** Load failure message; shown inside the section, not page-replacing. */
+  error?: string;
   children?: ReactNode;
 }) {
   return (
     <section className="rounded-lg bg-white p-6 shadow">
       <h2 className="mb-4 text-lg font-semibold">Audit Trail</h2>
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
       <ol className="relative space-y-4 border-l border-slate-200 pl-6">
         {entries.map((entry) => (
           <li key={entry.id} className="text-sm">

@@ -392,7 +392,13 @@ class ResendVerificationView(APIView):
     def post(self, request):
         user = _find_user_by_email(request.data.get("email"))
         if user is not None and not user.email_verified:
-            request_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
+            try:
+                request_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
+            except Exception:
+                # An email outage must not surface as a 500 (and must not
+                # change the response shape — enumeration safety). The user
+                # can simply retry; the cooldown still bounds sending.
+                logger.exception("Verification resend failed for user %s", user.pk)
         return Response({"detail": "If the account needs verification, a code was sent."})
 
 
@@ -405,7 +411,11 @@ class PasswordResetRequestView(APIView):
     def post(self, request):
         user = _find_user_by_email(request.data.get("email"))
         if user is not None:
-            request_otp(user, EmailOTP.Purpose.RESET_PASSWORD)
+            try:
+                request_otp(user, EmailOTP.Purpose.RESET_PASSWORD)
+            except Exception:
+                # Same policy as resend: log, keep the generic 200.
+                logger.exception("Password-reset OTP send failed for user %s", user.pk)
         return Response(
             {"detail": "If an account exists for that email, a reset code was sent."}
         )

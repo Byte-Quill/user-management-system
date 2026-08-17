@@ -733,6 +733,37 @@ class EmailOTPTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    @mock.patch("kyc.views.issue_otp", side_effect=RuntimeError("Resend down"))
+    def test_register_survives_email_send_failure(self, _mock):
+        """An email outage must not turn signup into a 500: the account is
+        already committed, so the client gets 201 and recovers via resend."""
+        res = self.client.post(
+            "/api/auth/register/", register_payload("outage@kyc.local")
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="outage@kyc.local")
+        self.assertFalse(user.email_verified)
+        # Login stays blocked until a (later, successful) verification.
+        res = self.client.post(
+            "/api/auth/token/",
+            {"email": "outage@kyc.local", "password": "Str0ngPass!"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    @mock.patch("kyc.auth_views.request_otp", side_effect=RuntimeError("Resend down"))
+    def test_resend_and_reset_request_survive_email_send_failure(self, _mock):
+        """Send failures keep the generic 200 (enumeration safety) instead of
+        surfacing as a 500."""
+        self.register()
+        res = self.client.post(
+            "/api/auth/verify-email/resend/", {"email": "otp@kyc.local"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        res = self.client.post(
+            "/api/auth/password-reset/request/", {"email": "otp@kyc.local"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
 
 def _google_sociallogin(email="guser@gmail.com", uid="google-uid-1", verified=True):
     """Build an unsaved SocialLogin shaped like allauth's Google provider output."""

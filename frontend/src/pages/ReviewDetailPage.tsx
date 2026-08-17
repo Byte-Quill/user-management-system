@@ -17,6 +17,7 @@ export default function ReviewDetailPage() {
   const navigate = useNavigate();
   const [app, setApp] = useState<KYCApplication | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [auditError, setAuditError] = useState("");
   const [decision, setDecision] = useState("approve");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
@@ -25,14 +26,19 @@ export default function ReviewDetailPage() {
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [application, trail] = await Promise.all([
-        api.getApplication(id),
-        api.fetchAudit(id),
-      ]);
-      setApp(application);
-      setAudit(trail.results);
+      setApp(await api.getApplication(id));
     } catch {
       setError("Failed to load application.");
+      return;
+    }
+    // Audit trail is supplementary: its failure is scoped to the section,
+    // never replaces the application view.
+    try {
+      setAuditError("");
+      const trail = await api.fetchAudit(id);
+      setAudit(trail.results);
+    } catch {
+      setAuditError("Failed to load the audit trail.");
     }
   }, [id]);
 
@@ -163,7 +169,7 @@ export default function ReviewDetailPage() {
         </section>
       )}
 
-      <AuditTrail entries={audit} />
+      <AuditTrail entries={audit} error={auditError} />
     </div>
   );
 }

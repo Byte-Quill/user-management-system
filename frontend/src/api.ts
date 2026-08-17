@@ -19,19 +19,34 @@ export function clearTokens() {
 
 async function doRefresh(): Promise<boolean> {
   // The refresh cookie travels with the request automatically.
-  const res = await fetch(`${BASE}/auth/token/refresh/`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/auth/token/refresh/`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+  } catch {
+    // Network failure: treat as logged-out rather than crashing the caller.
+    clearTokens();
+    return false;
+  }
   if (!res.ok) {
     clearTokens();
     return false;
   }
-  const data = await res.json();
-  accessToken = data.access;
-  return true;
+  try {
+    const data = await res.json();
+    if (typeof data?.access === "string") {
+      accessToken = data.access;
+      return true;
+    }
+  } catch {
+    // Non-JSON body (e.g. a proxy error page): fall through to logout.
+  }
+  clearTokens();
+  return false;
 }
 
 // Single-flight guard: the backend rotates and blacklists refresh tokens, so
@@ -62,15 +77,23 @@ export class ApiError extends Error {
 /** Flatten a DRF error body ({field: [messages]}) into a single display string. */
 export function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
+    if (err.status === 0) {
+      return "Network error. Check your connection and try again.";
+    }
     if (err.status === 429) {
       return err.retryAfter
         ? `Too many requests. Please try again in ${err.retryAfter} seconds.`
         : "Too many requests. Please try again later.";
     }
-    if (err.body && typeof err.body === "object") {
-      return Object.entries(err.body as Record<string, string | string[]>)
-        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
-        .join(" ");
+    if (err.body && typeof err.body === "object" && !Array.isArray(err.body)) {
+      const body = err.body as Record<string, string | string[]>;
+      // DRF APIView-style errors: show the message without a "detail:" prefix.
+      if (typeof body.detail === "string") return body.detail;
+      const parts = Object.entries(body).map(([k, v]) => {
+        const text = Array.isArray(v) ? v.join(", ") : String(v);
+        return k === "non_field_errors" ? text : `${k}: ${text}`;
+      });
+      if (parts.length > 0) return parts.join(" ");
     }
   }
   return fallback;
@@ -89,11 +112,18 @@ async function request<T>(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers,
-    credentials: "include",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers,
+      credentials: "include",
+    });
+  } catch {
+    // Offline / DNS / connection refused: surface as ApiError(0) so callers
+    // get a friendly message from errorMessage() instead of a raw TypeError.
+    throw new ApiError(0, null);
+  }
 
   if (res.status === 401 && retry && (await refreshAccess())) {
     return request<T>(path, options, false);

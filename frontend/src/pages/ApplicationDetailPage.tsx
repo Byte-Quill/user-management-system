@@ -24,11 +24,13 @@ export default function ApplicationDetailPage() {
   const { user } = useAuth();
   const [app, setApp] = useState<KYCApplication | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [auditError, setAuditError] = useState("");
   const [auditCount, setAuditCount] = useState(0);
   const [auditHasNext, setAuditHasNext] = useState(false);
   const [auditHasPrev, setAuditHasPrev] = useState(false);
   const [auditPage, setAuditPage] = useState(1);
   const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
   const [docType, setDocType] = useState("id_proof");
   const [file, setFile] = useState<File | null>(null);
@@ -40,14 +42,19 @@ export default function ApplicationDetailPage() {
     try {
       const application = await api.getApplication(id);
       setApp(application);
-    } catch {
-      setError("Failed to load application.");
+    } catch (err) {
+      setError(
+        err instanceof api.ApiError && err.status === 404
+          ? "Application not found. It may have been removed, or you don't have access."
+          : "Failed to load application."
+      );
     }
   }, [id]);
 
   const loadAudit = useCallback(
     async (pageNum: number) => {
       if (!id) return;
+      setAuditError("");
       try {
         const trail = await api.fetchAudit(id, pageNum);
         setAudit(trail.results);
@@ -55,7 +62,9 @@ export default function ApplicationDetailPage() {
         setAuditHasNext(!!trail.next);
         setAuditHasPrev(!!trail.previous);
       } catch {
-        setError("Failed to load audit trail.");
+        // Scoped to the audit section: a trail failure must not wipe the
+        // whole application view.
+        setAuditError("Failed to load the audit trail.");
       }
     },
     [id]
@@ -97,6 +106,7 @@ export default function ApplicationDetailPage() {
     }
     setBusy(true);
     setNotice("");
+    setActionError("");
     try {
       await api.uploadDocument(id, docType, file);
       setFile(null);
@@ -104,7 +114,7 @@ export default function ApplicationDetailPage() {
       setNotice("Document uploaded.");
       await load();
     } catch (err) {
-      setNotice(api.errorMessage(err, "Upload failed."));
+      setActionError(api.errorMessage(err, "Upload failed. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -114,12 +124,13 @@ export default function ApplicationDetailPage() {
     if (!id) return;
     setBusy(true);
     setNotice("");
+    setActionError("");
     try {
       await api.submitApplication(id);
       setNotice("Application submitted for review.");
       await load();
     } catch (err) {
-      setNotice(api.errorMessage(err, "Submit failed."));
+      setActionError(api.errorMessage(err, "Submit failed. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -129,12 +140,13 @@ export default function ApplicationDetailPage() {
     if (!id) return;
     setBusy(true);
     setNotice("");
+    setActionError("");
     try {
       await api.deleteDocument(id, docId);
       setNotice("Document removed.");
       await Promise.all([load(), loadAudit(auditPage)]);
     } catch (err) {
-      setNotice(api.errorMessage(err, "Remove failed."));
+      setActionError(api.errorMessage(err, "Remove failed. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -154,6 +166,11 @@ export default function ApplicationDetailPage() {
 
       {notice && (
         <div className="rounded bg-blue-50 px-4 py-2 text-sm text-blue-800">{notice}</div>
+      )}
+      {actionError && (
+        <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800">
+          {actionError}
+        </div>
       )}
 
       {app.status === "resubmission_requested" && isOwner && (
@@ -244,7 +261,7 @@ export default function ApplicationDetailPage() {
         </div>
       )}
 
-      <AuditTrail entries={audit}>
+      <AuditTrail entries={audit} error={auditError}>
         <Pagination
           count={auditCount}
           pageNum={auditPage}

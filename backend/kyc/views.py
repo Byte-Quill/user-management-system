@@ -1,3 +1,4 @@
+import logging
 import mimetypes
 from urllib.parse import quote
 
@@ -41,6 +42,8 @@ from .serializers import (
     UserSerializer,
 )
 
+logger = logging.getLogger("kyc.views")
+
 User = get_user_model()
 
 
@@ -59,7 +62,15 @@ class RegisterView(generics.CreateAPIView):
         user = serializer.save()
         # Hard email verification: the account exists but cannot log in until
         # the OTP emailed here is confirmed (/api/auth/verify-email/).
-        issue_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
+        try:
+            issue_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
+        except Exception:
+            # The account is already committed — an email outage (Resend
+            # down, missing RESEND_API_KEY) must NOT turn signup into a 500:
+            # the client would retry and hit "email already registered" with
+            # no way forward. Stay 201; the account remains unverified and
+            # the user recovers via /api/auth/verify-email/resend/.
+            logger.exception("Failed to send verification email to %s", user.email)
 
 
 class MeView(generics.RetrieveAPIView):
