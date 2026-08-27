@@ -6,7 +6,7 @@ import * as api from "../api";
 import { GOOGLE_CLIENT_ID } from "../App";
 import CountrySelect from "../components/CountrySelect";
 import DateOfBirthInput from "../components/DateOfBirthInput";
-import { Field, Select, TextInput } from "../components/Field";
+import { Field, PasswordInput, Select, TextInput } from "../components/Field";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 import PhoneInputField from "../components/PhoneInputField";
 import {
@@ -114,8 +114,6 @@ export default function RegisterPage() {
   const [form, setForm] = useState<RegisterForm>(INITIAL);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const [step, setStep] = useState(0);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -329,46 +327,24 @@ export default function RegisterPage() {
                 />
               </Field>
               <Field label="Password" error={fieldErrors.password}>
-                <div className="relative">
-                  <TextInput
-                    type={showPassword ? "text" : "password"}
-                    required
-                    minLength={8}
-                    autoComplete="new-password"
-                    value={form.password}
-                    onChange={set("password")}
-                    invalid={!!fieldErrors.password}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-slate-700"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? "Hide" : "Show"}
-                  </button>
-                </div>
+                <PasswordInput
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={form.password}
+                  onChange={set("password")}
+                  invalid={!!fieldErrors.password}
+                />
               </Field>
               <Field label="Confirm password" error={fieldErrors.confirm_password}>
-                <div className="relative">
-                  <TextInput
-                    type={showConfirmPassword ? "text" : "password"}
-                    required
-                    minLength={8}
-                    autoComplete="new-password"
-                    value={form.confirm_password}
-                    onChange={set("confirm_password")}
-                    invalid={!!fieldErrors.confirm_password}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword((v) => !v)}
-                    className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-slate-700"
-                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-                  >
-                    {showConfirmPassword ? "Hide" : "Show"}
-                  </button>
-                </div>
+                <PasswordInput
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={form.confirm_password}
+                  onChange={set("confirm_password")}
+                  invalid={!!fieldErrors.confirm_password}
+                />
               </Field>
             </>
           )}

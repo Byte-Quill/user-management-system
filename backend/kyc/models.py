@@ -203,6 +203,9 @@ class KYCApplication(models.Model):
         REJECT = "reject", "Reject"
         REQUEST_RESUBMISSION = "request_resubmission", "Request Resubmission"
 
+    # Statuses in which the applicant may still modify the application.
+    EDITABLE_STATUSES = (Status.DRAFT, Status.RESUBMISSION_REQUESTED)
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     applicant = models.ForeignKey(
         settings.AUTH_USER_MODEL,

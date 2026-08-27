@@ -105,6 +105,28 @@ export default function ApplicationDetailPage() {
   // Compare by applicant ID, not email: phone-only accounts have null email.
   const isOwner = user?.id === app.applicant_id;
 
+  // Shared shape for upload/submit/remove: run the mutation, show a notice,
+  // refresh app + audit, and surface failures in the action banner.
+  const runAction = async (
+    action: () => Promise<unknown>,
+    successNotice: string,
+    failureMessage: string
+  ) => {
+    if (!id) return;
+    setBusy(true);
+    setNotice("");
+    setActionError("");
+    try {
+      await action();
+      setNotice(successNotice);
+      await Promise.all([load(), loadAudit(auditPage)]);
+    } catch (err) {
+      setActionError(api.errorMessage(err, failureMessage));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const upload = async () => {
     if (!file || !id) return;
     const invalid = validateUploadFile(file);
@@ -112,53 +134,30 @@ export default function ApplicationDetailPage() {
       setFileError(invalid);
       return;
     }
-    setBusy(true);
-    setNotice("");
-    setActionError("");
-    try {
-      await api.uploadDocument(id, docType, file);
-      setFile(null);
-      setFileError("");
-      setNotice("Document uploaded.");
-      await Promise.all([load(), loadAudit(auditPage)]);
-    } catch (err) {
-      setActionError(api.errorMessage(err, "Upload failed. Please try again."));
-    } finally {
-      setBusy(false);
-    }
+    await runAction(
+      async () => {
+        await api.uploadDocument(id, docType, file);
+        setFile(null);
+        setFileError("");
+      },
+      "Document uploaded.",
+      "Upload failed. Please try again."
+    );
   };
 
-  const submit = async () => {
-    if (!id) return;
-    setBusy(true);
-    setNotice("");
-    setActionError("");
-    try {
-      await api.submitApplication(id);
-      setNotice("Application submitted for review.");
-      await Promise.all([load(), loadAudit(auditPage)]);
-    } catch (err) {
-      setActionError(api.errorMessage(err, "Submit failed. Please try again."));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const submit = () =>
+    runAction(
+      () => api.submitApplication(id!),
+      "Application submitted for review.",
+      "Submit failed. Please try again."
+    );
 
-  const removeDoc = async (docId: string) => {
-    if (!id) return;
-    setBusy(true);
-    setNotice("");
-    setActionError("");
-    try {
-      await api.deleteDocument(id, docId);
-      setNotice("Document removed.");
-      await Promise.all([load(), loadAudit(auditPage)]);
-    } catch (err) {
-      setActionError(api.errorMessage(err, "Remove failed. Please try again."));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const removeDoc = (docId: string) =>
+    runAction(
+      () => api.deleteDocument(id!, docId),
+      "Document removed.",
+      "Remove failed. Please try again."
+    );
 
   return (
     <div className="space-y-6">

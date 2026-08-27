@@ -65,6 +65,22 @@ def _delete_refresh_cookie(response: Response) -> None:
     response.delete_cookie(COOKIE_NAME, path=getattr(settings, "JWT_AUTH_COOKIE_PATH", "/"))
 
 
+def _reject_cross_origin(request, action: str) -> Response | None:
+    """403 for disallowed Origins on cookie-setting/-sending endpoints, else None.
+
+    Login/refresh/logout all SET or DELETE the refresh cookie, so a
+    cross-site request that carries the cookie must fail the Origin check
+    (login CSRF / forced logout).
+    """
+    if origin_allowed(request):
+        return None
+    logger.warning("%s rejected: disallowed Origin %s", action, request.headers.get("Origin"))
+    return Response(
+        {"detail": f"Cross-origin {action} is not allowed."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 def origin_allowed(request) -> bool:
     """Return True when the request Origin (if any) is safe for cookie auth."""
     origin = request.headers.get("Origin")
@@ -96,12 +112,8 @@ class CookieTokenObtainPairView(TokenObtainPairView):
         # Login CSRF: a successful login SETS the refresh cookie, so an
         # attacker's auto-submitting form could log a victim into an
         # attacker-controlled account without an Origin check.
-        if not origin_allowed(request):
-            logger.warning("Login rejected: disallowed Origin %s", request.headers.get("Origin"))
-            return Response(
-                {"detail": "Cross-origin login is not allowed."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if (rejected := _reject_cross_origin(request, "login")) is not None:
+            return rejected
         response = super().post(request, *args, **kwargs)
         if response.status_code == status.HTTP_200_OK:
             refresh = response.data.pop("refresh", None)
@@ -116,12 +128,8 @@ class CookieTokenRefreshView(TokenRefreshView):
     permission_classes = (AllowAny,)
 
     def post(self, request, *args, **kwargs):
-        if not origin_allowed(request):
-            logger.warning("Refresh rejected: disallowed Origin %s", request.headers.get("Origin"))
-            return Response(
-                {"detail": "Cross-origin refresh is not allowed."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if (rejected := _reject_cross_origin(request, "refresh")) is not None:
+            return rejected
         # Fall back to the body token when the cookie is absent (API clients).
         refresh = request.COOKIES.get(COOKIE_NAME) or request.data.get("refresh")
         if not refresh:
@@ -178,12 +186,8 @@ class LogoutView(APIView):
     def post(self, request):
         # Logout CSRF: a cross-site POST would send the victim's cookie and
         # blacklist their refresh token (forced logout).
-        if not origin_allowed(request):
-            logger.warning("Logout rejected: disallowed Origin %s", request.headers.get("Origin"))
-            return Response(
-                {"detail": "Cross-origin logout is not allowed."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if (rejected := _reject_cross_origin(request, "logout")) is not None:
+            return rejected
         refresh = request.COOKIES.get(COOKIE_NAME) or request.data.get("refresh")
         if refresh:
             try:
@@ -276,14 +280,8 @@ class GoogleAuthView(APIView):
     def post(self, request, *args, **kwargs):
         # Login CSRF: this endpoint SETS the refresh cookie, so an attacker's
         # page could silently log a victim into an attacker-controlled account.
-        if not origin_allowed(request):
-            logger.warning(
-                "Google login rejected: disallowed Origin %s", request.headers.get("Origin")
-            )
-            return Response(
-                {"detail": "Cross-origin login is not allowed."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if (rejected := _reject_cross_origin(request, "login")) is not None:
+            return rejected
 
         if not getattr(settings, "GOOGLE_CLIENT_ID", ""):
             logger.error("Google login attempted but GOOGLE_CLIENT_ID is not configured")

@@ -52,6 +52,15 @@ def legacy_phone_key(value: str) -> str:
     return f"+{digits}" if value.strip().startswith("+") else digits
 
 
+def validate_dob(value):
+    """Shared sanity bounds for dates of birth (registration + application)."""
+    if value > date.today():
+        raise serializers.ValidationError("Date of birth cannot be in the future.")
+    if value < DOB_MIN:
+        raise serializers.ValidationError("Enter a valid date of birth.")
+    return value
+
+
 def validate_person_name(value: str, label: str, required: bool = True) -> str:
     value = value.strip()
     if not value:
@@ -197,14 +206,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         return validate_person_name(value, "Last name")
 
     def validate_date_of_birth(self, value):
-        # Same sanity bounds as KYCApplicationSerializer.
         if value is None:
             return None
-        if value > date.today():
-            raise serializers.ValidationError("Date of birth cannot be in the future.")
-        if value < DOB_MIN:
-            raise serializers.ValidationError("Enter a valid date of birth.")
-        return value
+        return validate_dob(value)
 
     def validate_phone(self, value):
         # Phone is optional (an email alone is enough); normalize empty to None.
@@ -378,11 +382,7 @@ class KYCApplicationSerializer(serializers.ModelSerializer):
         )
 
     def validate_date_of_birth(self, value):
-        if value > date.today():
-            raise serializers.ValidationError("Date of birth cannot be in the future.")
-        if value < DOB_MIN:
-            raise serializers.ValidationError("Enter a valid date of birth.")
-        return value
+        return validate_dob(value)
 
     def validate_phone(self, value):
         trimmed = value.strip()
@@ -397,15 +397,10 @@ class KYCApplicationSerializer(serializers.ModelSerializer):
         if not request:
             return attrs
         # Applicants may only edit while the application is a draft or needs resubmission
-        if self.instance:
-            editable = (
-                KYCApplication.Status.DRAFT,
-                KYCApplication.Status.RESUBMISSION_REQUESTED,
+        if self.instance and self.instance.status not in KYCApplication.EDITABLE_STATUSES:
+            raise serializers.ValidationError(
+                "This application can no longer be edited."
             )
-            if self.instance.status not in editable:
-                raise serializers.ValidationError(
-                    "This application can no longer be edited."
-                )
         return attrs
 
 

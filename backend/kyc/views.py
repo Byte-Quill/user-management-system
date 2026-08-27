@@ -46,6 +46,13 @@ logger = logging.getLogger("kyc.views")
 
 User = get_user_model()
 
+# Reviewer decision -> audit action (static; shared by the review endpoint).
+REVIEW_ACTION_MAP = {
+    KYCApplication.Decision.APPROVE: AuditLog.Action.APPROVED,
+    KYCApplication.Decision.REJECT: AuditLog.Action.REJECTED,
+    KYCApplication.Decision.REQUEST_RESUBMISSION: AuditLog.Action.RESUBMISSION_REQUESTED,
+}
+
 
 class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
@@ -122,6 +129,21 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             return qs
         return qs.filter(applicant=user)
 
+    def _locked_editable(self, application, verb: str) -> KYCApplication:
+        """Lock the row and verify it is still editable.
+
+        Callers must run this inside ``transaction.atomic()``: the row lock
+        stops a concurrent submit/review from flipping the status between the
+        editable check and the caller's write. ``verb`` names the blocked
+        action for the ownership error ("edit", "upload documents", ...).
+        """
+        locked = KYCApplication.objects.select_for_update().get(pk=application.pk)
+        if locked.applicant_id != self.request.user.id:
+            raise ValidationError(f"Only the applicant can {verb}.")
+        if locked.status not in KYCApplication.EDITABLE_STATUSES:
+            raise ValidationError("This application can no longer be edited.")
+        return locked
+
     def perform_create(self, serializer):
         # Atomic so the application row and its audit entry commit together.
         with transaction.atomic():
@@ -130,16 +152,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         with transaction.atomic():
-            # Row lock: a concurrent submit/review cannot flip the status
-            # between the editable check and the write.
-            locked = KYCApplication.objects.select_for_update().get(
-                pk=serializer.instance.pk
-            )
-            if locked.status not in (
-                KYCApplication.Status.DRAFT,
-                KYCApplication.Status.RESUBMISSION_REQUESTED,
-            ):
-                raise ValidationError("This application can no longer be edited.")
+            self._locked_editable(serializer.instance, "edit")
             application = serializer.save()
             log_action(application, self.request.user, AuditLog.Action.UPDATED)
 
@@ -192,20 +205,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
 
         try:
             with transaction.atomic():
-                # Row lock: a concurrent submit cannot flip the status between
-                # the editable check and the write.
-                application = KYCApplication.objects.select_for_update().get(
-                    pk=application.pk
-                )
-                if application.applicant_id != request.user.id:
-                    raise ValidationError("Only the applicant can upload documents.")
-                if application.status not in (
-                    KYCApplication.Status.DRAFT,
-                    KYCApplication.Status.RESUBMISSION_REQUESTED,
-                ):
-                    raise ValidationError(
-                        "Documents can only be uploaded while the application is editable."
-                    )
+                application = self._locked_editable(application, "upload documents")
                 document.save()
                 log_action(
                     application,
@@ -241,20 +241,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         """
         application = self.get_object()
         with transaction.atomic():
-            # Row lock: a concurrent submit cannot flip the status between the
-            # editable check and the delete.
-            application = KYCApplication.objects.select_for_update().get(
-                pk=application.pk
-            )
-            if application.applicant_id != request.user.id:
-                raise ValidationError("Only the applicant can remove documents.")
-            if application.status not in (
-                KYCApplication.Status.DRAFT,
-                KYCApplication.Status.RESUBMISSION_REQUESTED,
-            ):
-                raise ValidationError(
-                    "Documents can only be removed while the application is editable."
-                )
+            application = self._locked_editable(application, "remove documents")
 
             try:
                 document = application.documents.get(pk=doc_id)
@@ -291,14 +278,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
                 application.apply_review(reviewer=request.user, decision=decision, notes=notes)
             except DjangoValidationError as exc:
                 raise ValidationError(exc.message) from exc
-            action_map = {
-                KYCApplication.Decision.APPROVE: AuditLog.Action.APPROVED,
-                KYCApplication.Decision.REJECT: AuditLog.Action.REJECTED,
-                KYCApplication.Decision.REQUEST_RESUBMISSION: (
-                    AuditLog.Action.RESUBMISSION_REQUESTED
-                ),
-            }
-            log_action(application, request.user, action_map[decision], detail=notes)
+            log_action(application, request.user, REVIEW_ACTION_MAP[decision], detail=notes)
         return Response(self.get_serializer(application).data)
 
     @action(detail=True, methods=["get"])

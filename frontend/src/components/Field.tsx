@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 
 interface FieldProps {
@@ -43,4 +44,25 @@ export function Select({
   ...props
 }: SelectHTMLAttributes<HTMLSelectElement> & InvalidProp) {
   return <select {...props} className={inputClass(invalid)} />;
+}
+
+/** Password input with a Show/Hide toggle (shared by all auth forms). */
+export function PasswordInput({
+  invalid = false,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement> & InvalidProp) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <input {...props} type={visible ? "text" : "password"} className={inputClass(invalid)} />
+      <button
+        type="button"
+        onClick={() => setVisible((v) => !v)}
+        className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-slate-700"
+        aria-label={visible ? "Hide password" : "Show password"}
+      >
+        {visible ? "Hide" : "Show"}
+      </button>
+    </div>
+  );
 }

@@ -5,6 +5,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import * as api from "../api";
 import { GOOGLE_CLIENT_ID } from "../App";
 import { useAuth } from "../auth";
+import { PasswordInput } from "../components/Field";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 import { validateIdentifier, validateLoginPassword } from "../validation";
 
@@ -23,7 +24,6 @@ export default function LoginPage() {
   const state = (location.state as LoginLocationState | null) ?? {};
   const [identifier, setIdentifier] = useState(state.email ?? "");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(
     state.verified
@@ -94,24 +94,12 @@ export default function LoginPage() {
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Password</label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-slate-700"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? "Hide" : "Show"}
-              </button>
-            </div>
+            <PasswordInput
+              required
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           {notice && <p className="text-sm text-green-700">{notice}</p>}

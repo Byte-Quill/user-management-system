@@ -38,8 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void initializeAuth();
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const tokens = await api.login(email, password);
+  // Shared by password and Google login: store the access token, load the
+  // profile, and roll back to logged-out if the profile fetch fails.
+  const startSession = useCallback(async (tokens: { access: string }) => {
     api.setTokens(tokens.access);
     try {
       setUser(await api.fetchMe());
@@ -50,16 +51,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const loginWithGoogle = useCallback(async (credential: string) => {
-    const tokens = await api.googleLogin(credential);
-    api.setTokens(tokens.access);
-    try {
-      setUser(await api.fetchMe());
-    } catch (err) {
-      api.clearTokens();
-      throw err;
-    }
-  }, []);
+  const login = useCallback(
+    async (email: string, password: string) => startSession(await api.login(email, password)),
+    [startSession]
+  );
+
+  const loginWithGoogle = useCallback(
+    async (credential: string) => startSession(await api.googleLogin(credential)),
+    [startSession]
+  );
 
   const logout = useCallback(() => {
     // Best-effort server-side blacklist + cookie clear; always clear locally.
