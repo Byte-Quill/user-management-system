@@ -14,17 +14,9 @@ updates:
       minor-patch:
         update-types: [minor, patch]
 
-  - package-ecosystem: npm
-    directory: /frontend
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 10
-    labels: [dependencies, javascript]
-    commit-message:
-      prefix: deps(frontend)
-    groups:
-      minor-patch:
-        update-types: [minor, patch]
+  # Frontend deps are managed with Bun (bun.lock). Dependabot has no
+  # bun.lock support, so frontend updates are handled manually via
+  # `bun update` / `bun outdated` until Dependabot adds support.
 
   - package-ecosystem: docker
     directory: /backend

@@ -386,8 +386,8 @@ python manage.py runserver          # http://127.0.0.1:8000
 
 ```bash
 cd frontend
-npm install
-npm run dev                         # http://localhost:5173
+bun install
+bun run dev                         # http://localhost:5173
 # Vite proxies /api and /media to localhost:8000
 ```
 
@@ -471,7 +471,7 @@ Build the SPA and serve it statically:
 
 ```bash
 cd frontend
-VITE_API_URL=https://api.example.com npm run build   # cross-origin deploys only
+VITE_API_URL=https://api.example.com bun run build   # cross-origin deploys only
 ```
 
 `frontend/Dockerfile` builds the app and serves `dist/` with nginx
