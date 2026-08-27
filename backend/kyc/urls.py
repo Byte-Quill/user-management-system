@@ -12,15 +12,18 @@ from .auth_views import (
     VerifyEmailView,
 )
 from .views import (
+    AnalyticsView,
     DocumentDownloadView,
     KYCApplicationViewSet,
     MeView,
     RegisterView,
     ReviewQueueView,
+    UserManagementViewSet,
 )
 
 router = DefaultRouter()
 router.register("applications", KYCApplicationViewSet, basename="application")
+router.register("users", UserManagementViewSet, basename="user-management")
 
 urlpatterns = [
     path("auth/register/", RegisterView.as_view(), name="register"),
@@ -46,6 +49,7 @@ urlpatterns = [
         name="password_reset_confirm",
     ),
     path("review-queue/", ReviewQueueView.as_view(), name="review_queue"),
+    path("analytics/", AnalyticsView.as_view(), name="analytics"),
     path(
         "documents/<uuid:doc_id>/download/",
         DocumentDownloadView.as_view(),

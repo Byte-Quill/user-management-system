@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import AuditLog, Document, KYCApplication, User, log_action
+from .models import AuditLog, Document, EmailLog, KYCApplication, User, log_action
 
 
 @admin.register(User)
@@ -72,10 +72,10 @@ class KYCApplicationAdmin(admin.ModelAdmin):
     inlines = [DocumentInline]
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        # Only reviewer/admin users may be assigned as the reviewer.
+        # Only admin/super-admin users may be assigned as the reviewer.
         if db_field.name == "reviewer":
             kwargs["queryset"] = User.objects.filter(
-                role__in=(User.Role.REVIEWER, User.Role.ADMIN)
+                role__in=(User.Role.ADMIN, User.Role.SUPER_ADMIN)
             )
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
@@ -125,4 +125,24 @@ class AuditLogAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         # The audit trail is append-only.
+        return False
+
+
+@admin.register(EmailLog)
+class EmailLogAdmin(admin.ModelAdmin):
+    list_display = ("purpose", "recipient", "status", "created_at")
+    list_filter = ("purpose", "status")
+    search_fields = ("recipient", "subject", "user__email")
+    readonly_fields = ("user", "purpose", "recipient", "subject", "status", "created_at")
+    date_hierarchy = "created_at"
+    ordering = ("-created_at",)
+
+    def has_add_permission(self, request):
+        # Written only by the OTP send path.
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False

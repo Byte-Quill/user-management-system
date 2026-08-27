@@ -97,8 +97,9 @@ class User(AbstractUser):
 
     class Role(models.TextChoices):
         APPLICANT = "applicant", "Applicant"
-        REVIEWER = "reviewer", "Reviewer"
         ADMIN = "admin", "Admin"
+        SUPER_ADMIN = "super_admin", "Super Admin"
+        CEO = "ceo", "CEO"
 
     class Gender(models.TextChoices):
         MALE = "male", "Male"
@@ -148,7 +149,17 @@ class User(AbstractUser):
 
     @property
     def is_reviewer(self):
-        return self.role in (self.Role.REVIEWER, self.Role.ADMIN)
+        # Admins and super admins review applications; the CEO role is
+        # analytics-only and stays out of the review queue.
+        return self.role in (self.Role.ADMIN, self.Role.SUPER_ADMIN)
+
+    @property
+    def is_super_admin(self):
+        return self.role == self.Role.SUPER_ADMIN
+
+    @property
+    def is_ceo(self):
+        return self.role == self.Role.CEO
 
 
 class EmailOTP(models.Model):
@@ -181,6 +192,47 @@ class EmailOTP(models.Model):
 
     def __str__(self):
         return f"EmailOTP({self.purpose}, user={self.user_id})"
+
+
+class EmailLog(models.Model):
+    """Append-only record of transactional emails sent (verification, reset).
+
+    Powers the CEO analytics "email activity" panel. Rows are written by
+    ``kyc.otp._send_otp_email`` after each send attempt, so both successes
+    and failures are visible. The log is deliberately separate from the OTP
+    rows themselves: OTPs are purged a day after expiry, but the activity
+    history is retained for reporting.
+    """
+
+    class Purpose(models.TextChoices):
+        VERIFY_EMAIL = "verify_email", "Verify Email"
+        RESET_PASSWORD = "reset_password", "Reset Password"
+
+    class Status(models.TextChoices):
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="email_logs",
+    )
+    purpose = models.CharField(max_length=20, choices=Purpose.choices)
+    recipient = models.EmailField()
+    subject = models.CharField(max_length=255)
+    status = models.CharField(max_length=10, choices=Status.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["-created_at"], name="kyc_emaillo_created_idx")
+        ]
+
+    def __str__(self):
+        return f"EmailLog({self.purpose}, {self.status}, {self.recipient})"
 
 
 class KYCApplication(models.Model):

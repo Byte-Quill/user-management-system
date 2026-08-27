@@ -1,13 +1,16 @@
 import logging
 import mimetypes
+from datetime import timedelta
 from urllib.parse import quote
 
 from django.contrib.auth import get_user_model
 from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import TimestampSigner
-from django.db import transaction
+from django.db import models, transaction
+from django.db.models import Count
 from django.http import FileResponse
+from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
@@ -18,8 +21,10 @@ from rest_framework.views import APIView
 
 from .access import (
     DownloadThrottle,
+    IsCEO,
     IsOwnerOrReviewer,
     IsReviewer,
+    IsSuperAdmin,
     RegisterThrottle,
     WriteThrottle,
 )
@@ -28,17 +33,23 @@ from .models import (
     DOWNLOAD_TOKEN_SALT,
     AuditLog,
     Document,
+    EmailLog,
     EmailOTP,
     KYCApplication,
     log_action,
 )
 from .otp import issue_otp
 from .serializers import (
+    AdminUserCreateSerializer,
+    AdminUserSerializer,
+    AdminUserUpdateSerializer,
     AuditLogSerializer,
     DocumentSerializer,
+    EmailLogSerializer,
     KYCApplicationSerializer,
     RegisterSerializer,
     ReviewSerializer,
+    SetPasswordSerializer,
     UserSerializer,
 )
 
@@ -307,6 +318,107 @@ class ReviewQueueView(generics.ListAPIView):
             KYCApplication.objects.filter(status=KYCApplication.Status.SUBMITTED)
             .select_related("applicant")
             .prefetch_related("documents")
+        )
+
+
+class UserManagementViewSet(viewsets.ModelViewSet):
+    """SUPER_ADMIN user management: list, create, change roles, reset passwords.
+
+    Self-modification is blocked on update/delete/set-password: an operator
+    must not be able to lock themselves out or silently change their own
+    role. Deactivation is used instead of deletion so the audit trail and
+    application history stay intact.
+    """
+
+    serializer_class = AdminUserSerializer
+    permission_classes = (IsAuthenticated, IsSuperAdmin)
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def get_queryset(self):
+        qs = User.objects.all().order_by("-date_joined")
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(
+                models.Q(email__icontains=search)
+                | models.Q(username__icontains=search)
+                | models.Q(first_name__icontains=search)
+                | models.Q(last_name__icontains=search)
+            )
+        role = self.request.query_params.get("role", "").strip()
+        if role:
+            if role not in User.Role.values:
+                raise ValidationError(f"Invalid role: {role}")
+            qs = qs.filter(role=role)
+        return qs
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return AdminUserCreateSerializer
+        if self.action in ("partial_update", "update"):
+            return AdminUserUpdateSerializer
+        return AdminUserSerializer
+
+    def perform_update(self, serializer):
+        if serializer.instance.pk == self.request.user.pk:
+            raise ValidationError("You cannot change your own role or status.")
+        serializer.save()
+
+    @action(detail=True, methods=["post"])
+    def set_password(self, request, pk=None):
+        user = self.get_object()
+        if user.pk == request.user.pk:
+            raise ValidationError("You cannot reset your own password here.")
+        serializer = SetPasswordSerializer(
+            data=request.data, context={"user": user}
+        )
+        serializer.is_valid(raise_exception=True)
+        # set_password() changes the password hash, which also revokes all
+        # existing JWTs for the user (CHECK_REVOKE_TOKEN compares the hash).
+        user.set_password(serializer.validated_data["new_password"])
+        user.save(update_fields=["password"])
+        return Response({"detail": "Password updated."})
+
+
+class AnalyticsView(APIView):
+    """CEO analytics: KPIs, approval rate, pipeline breakdown, email activity."""
+
+    permission_classes = (IsAuthenticated, IsCEO)
+
+    def get(self, request):
+        now = timezone.now()
+        last_30 = now - timedelta(days=30)
+
+        total = KYCApplication.objects.count()
+        by_status = dict(
+            KYCApplication.objects.values_list("status").annotate(count=Count("id"))
+        )
+        approved = by_status.get(KYCApplication.Status.APPROVED, 0)
+        rejected = by_status.get(KYCApplication.Status.REJECTED, 0)
+        decided = approved + rejected
+        approval_rate = round(approved / decided * 100, 1) if decided else None
+
+        recent = KYCApplication.objects.filter(created_at__gte=last_30).count()
+
+        emails = EmailLog.objects.filter(created_at__gte=last_30)
+        email_counts = dict(emails.values_list("status").annotate(count=Count("id")))
+        recent_emails = EmailLog.objects.select_related("user").order_by("-created_at")[:20]
+
+        return Response(
+            {
+                "kpis": {
+                    "total_applications": total,
+                    "submitted_last_30_days": recent,
+                    "users": User.objects.count(),
+                    "pending_review": by_status.get(KYCApplication.Status.SUBMITTED, 0),
+                },
+                "approval_rate": approval_rate,
+                "pipeline": {s: by_status.get(s, 0) for s in KYCApplication.Status.values},
+                "email_activity": {
+                    "sent_last_30_days": email_counts.get(EmailLog.Status.SENT, 0),
+                    "failed_last_30_days": email_counts.get(EmailLog.Status.FAILED, 0),
+                    "recent": EmailLogSerializer(recent_emails, many=True).data,
+                },
+            }
         )
 
 

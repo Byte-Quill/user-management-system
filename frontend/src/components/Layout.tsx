@@ -24,11 +24,13 @@ export default function Layout() {
                 <Link to="/" className="hover:text-slate-300">
                   Dashboard
                 </Link>
-                {(user.role === "reviewer" || user.role === "admin") && (
+                {(user.role === "admin" || user.role === "super_admin") && (
                   <Link to="/review" className="hover:text-slate-300">
                     Review Queue
                   </Link>
                 )}
+                {user.role === "super_admin" && <Link to="/users" className="hover:text-slate-300">Users</Link>}
+                {user.role === "ceo" && <Link to="/analytics" className="hover:text-slate-300">Analytics</Link>}
                 <span className="text-slate-400" title={user.email ?? user.phone ?? ""}>
                   {user.username} · {user.role}
                 </span>

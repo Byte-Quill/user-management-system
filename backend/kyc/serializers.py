@@ -11,7 +11,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .email_domains import is_disposable_email
-from .models import AuditLog, Document, KYCApplication, generate_user_id
+from .models import AuditLog, Document, EmailLog, KYCApplication, generate_user_id
 
 User = get_user_model()
 
@@ -417,3 +417,130 @@ class ReviewSerializer(serializers.Serializer):
                 {"notes": "Notes are required when rejecting or requesting resubmission."}
             )
         return attrs
+
+
+# --- User management (SUPER_ADMIN) ------------------------------------------
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    """Read representation of a user for the management console."""
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "email",
+            "username",
+            "first_name",
+            "last_name",
+            "phone",
+            "role",
+            "email_verified",
+            "is_active",
+            "date_joined",
+        )
+        read_only_fields = fields
+
+
+class AdminUserCreateSerializer(serializers.ModelSerializer):
+    """SUPER_ADMIN account creation: contact + password + role.
+
+    The public User ID is generated server-side, as in self-registration.
+    Admin-created accounts start email-verified: they are provisioned by a
+    trusted operator, and requiring an OTP would need inbox access the
+    operator may not have.
+    """
+
+    password = PasswordField()
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "email",
+            "username",
+            "password",
+            "first_name",
+            "last_name",
+            "phone",
+            "role",
+        )
+        read_only_fields = ("id", "username")
+
+    def validate_first_name(self, value):
+        return validate_person_name(value, "First name")
+
+    def validate_last_name(self, value):
+        return validate_person_name(value, "Last name")
+
+    def validate_phone(self, value):
+        if not value:
+            return None
+        try:
+            normalized = normalize_phone(value.strip())
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        if User.objects.filter(phone=normalized).exists():
+            raise serializers.ValidationError("This phone number is already registered.")
+        return normalized
+
+    def validate(self, attrs):
+        if not attrs.get("email") and not attrs.get("phone"):
+            raise serializers.ValidationError(
+                "Provide an email address or a phone number (at least one is required)."
+            )
+        user = User(
+            email=attrs.get("email"),
+            first_name=attrs.get("first_name", ""),
+            last_name=attrs.get("last_name", ""),
+            phone=attrs.get("phone"),
+        )
+        try:
+            validate_password(attrs["password"], user=user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": exc.messages}) from exc
+        return attrs
+
+    def create(self, validated_data):
+        return User.objects.create_user(
+            email=validated_data.get("email"),
+            username=generate_user_id(),
+            password=validated_data["password"],
+            first_name=validated_data["first_name"],
+            last_name=validated_data["last_name"],
+            phone=validated_data.get("phone"),
+            role=validated_data.get("role", User.Role.APPLICANT),
+            email_verified=True,
+        )
+
+
+class AdminUserUpdateSerializer(serializers.ModelSerializer):
+    """Role / active-status changes. Self-modification is blocked in the view
+    (an operator must not lock themselves out)."""
+
+    class Meta:
+        model = User
+        fields = ("role", "is_active")
+
+
+class SetPasswordSerializer(serializers.Serializer):
+    """Direct password reset by a SUPER_ADMIN."""
+
+    new_password = PasswordField()
+
+    def validate_new_password(self, value):
+        user = self.context.get("user")
+        try:
+            validate_password(value, user=user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages) from exc
+        return value
+
+
+class EmailLogSerializer(serializers.ModelSerializer):
+    user_email = serializers.EmailField(source="user.email", read_only=True, default=None)
+
+    class Meta:
+        model = EmailLog
+        fields = ("id", "purpose", "recipient", "subject", "status", "user_email", "created_at")
+        read_only_fields = fields

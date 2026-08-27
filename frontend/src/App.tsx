@@ -18,6 +18,8 @@ const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 const ReviewDetailPage = lazy(() => import("./pages/ReviewDetailPage"));
 const ReviewQueuePage = lazy(() => import("./pages/ReviewQueuePage"));
 const VerifyEmailPage = lazy(() => import("./pages/VerifyEmailPage"));
+const UsersPage = lazy(() => import("./pages/UsersPage"));
+const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
 
 function PageLoader() {
   return <p className="p-8 text-center text-slate-500">Loading…</p>;
@@ -30,12 +32,17 @@ function Protected({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-function ReviewerOnly({ children }: { children: ReactNode }) {
+function RoleOnly({ roles, children }: { roles: string[]; children: ReactNode }) {
   const { user } = useAuth();
-  if (!user || (user.role !== "reviewer" && user.role !== "admin")) {
+  if (!user || !roles.includes(user.role)) {
     return <Navigate to="/" replace />;
   }
   return <>{children}</>;
+}
+
+function HomeRoute() {
+  const { user } = useAuth();
+  return user?.role === "ceo" ? <Navigate to="/analytics" replace /> : <DashboardPage />;
 }
 
 export default function App() {
@@ -54,26 +61,28 @@ export default function App() {
             </Protected>
           }
         >
-          <Route path="/" element={<DashboardPage />} />
+          <Route path="/" element={<HomeRoute />} />
           <Route path="/applications/new" element={<ApplicationFormPage />} />
           <Route path="/applications/:id/edit" element={<ApplicationFormPage />} />
           <Route path="/applications/:id" element={<ApplicationDetailPage />} />
           <Route
             path="/review"
             element={
-              <ReviewerOnly>
+              <RoleOnly roles={["admin", "super_admin"]}>
                 <ReviewQueuePage />
-              </ReviewerOnly>
+              </RoleOnly>
             }
           />
           <Route
             path="/review/:id"
             element={
-              <ReviewerOnly>
+              <RoleOnly roles={["admin", "super_admin"]}>
                 <ReviewDetailPage />
-              </ReviewerOnly>
+              </RoleOnly>
             }
           />
+          <Route path="/users" element={<RoleOnly roles={["super_admin"]}><UsersPage /></RoleOnly>} />
+          <Route path="/analytics" element={<RoleOnly roles={["ceo"]}><AnalyticsPage /></RoleOnly>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

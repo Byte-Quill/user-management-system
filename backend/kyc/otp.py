@@ -18,7 +18,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from .models import EmailOTP
+from .models import EmailLog, EmailOTP
 
 logger = logging.getLogger("kyc.otp")
 
@@ -75,7 +75,25 @@ def _send_otp_email(user, purpose: str, code: str) -> None:
             "password stays unchanged.\n\n"
             "— Login Portal"
         )
-    send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [user.email])
+    try:
+        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [user.email])
+    except Exception:
+        # Record the failure for the CEO email-activity panel, then re-raise
+        # so the caller's existing outage handling (log + generic response)
+        # still applies.
+        _log_email(user, purpose, subject, EmailLog.Status.FAILED)
+        raise
+    _log_email(user, purpose, subject, EmailLog.Status.SENT)
+
+
+def _log_email(user, purpose: str, subject: str, status: str) -> None:
+    """Append to EmailLog; a logging failure must never break the send path."""
+    try:
+        EmailLog.objects.create(
+            user=user, purpose=purpose, recipient=user.email, subject=subject, status=status
+        )
+    except Exception:
+        logger.exception("Failed to write EmailLog entry")
 
 
 def latest_active(user, purpose: str):

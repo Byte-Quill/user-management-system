@@ -14,10 +14,24 @@ logger = logging.getLogger("kyc.access")
 
 
 class IsReviewer(BasePermission):
-    """Allow access only to reviewers/admins."""
+    """Allow access only to reviewers (admins/super admins)."""
 
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated and request.user.is_reviewer)
+
+
+class IsSuperAdmin(BasePermission):
+    """Allow access only to super admins (user management)."""
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_super_admin)
+
+
+class IsCEO(BasePermission):
+    """Allow access only to the CEO role (company analytics)."""
+
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_ceo)
 
 
 class IsOwnerOrReviewer(BasePermission):

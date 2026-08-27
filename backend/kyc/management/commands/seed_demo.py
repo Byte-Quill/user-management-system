@@ -11,7 +11,7 @@ User = get_user_model()
 
 
 class Command(BaseCommand):
-    help = "Create demo users (admin/reviewer/applicant) and a sample application."
+    help = "Create demo users (super admin/admin/ceo/applicant) and a sample application."
 
     def handle(self, *args, **options):
         # No override: these are well-known credentials, so the command
@@ -22,11 +22,11 @@ class Command(BaseCommand):
                 "and is meant for local development only. Refusing to run with "
                 "DJANGO_DEBUG=false."
             )
-        admin, created = User.objects.get_or_create(
-            email="admin@kyc.local",
+        super_admin, created = User.objects.get_or_create(
+            email="superadmin@kyc.local",
             defaults={
-                "username": "admin",
-                "role": User.Role.ADMIN,
+                "username": "superadmin",
+                "role": User.Role.SUPER_ADMIN,
                 "is_staff": True,
                 "is_superuser": True,
                 # Trusted local-dev fixtures: skip the email-OTP gate.
@@ -34,21 +34,33 @@ class Command(BaseCommand):
             },
         )
         if created:
-            admin.set_password("Admin@123")
-            admin.save()
+            super_admin.set_password("Super@123")
+            super_admin.save()
 
-        reviewer, created = User.objects.get_or_create(
-            email="reviewer@kyc.local",
+        admin, created = User.objects.get_or_create(
+            email="admin@kyc.local",
             defaults={
-                "username": "reviewer",
-                "role": User.Role.REVIEWER,
+                "username": "admin",
+                "role": User.Role.ADMIN,
                 "is_staff": True,
                 "email_verified": True,
             },
         )
         if created:
-            reviewer.set_password("Review@123")
-            reviewer.save()
+            admin.set_password("Admin@123")
+            admin.save()
+
+        ceo, created = User.objects.get_or_create(
+            email="ceo@kyc.local",
+            defaults={
+                "username": "ceo",
+                "role": User.Role.CEO,
+                "email_verified": True,
+            },
+        )
+        if created:
+            ceo.set_password("Ceo@12345")
+            ceo.save()
 
         applicant, created = User.objects.get_or_create(
             email="user@kyc.local",
@@ -88,6 +100,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS("Created sample draft application."))
 
         self.stdout.write(self.style.SUCCESS("Demo data ready."))
+        self.stdout.write("  superadmin@kyc.local / Super@123")
         self.stdout.write("  admin@kyc.local / Admin@123")
-        self.stdout.write("  reviewer@kyc.local / Review@123")
+        self.stdout.write("  ceo@kyc.local / Ceo@12345")
         self.stdout.write("  user@kyc.local / User@123")

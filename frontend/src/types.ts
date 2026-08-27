@@ -1,4 +1,4 @@
-export type Role = "applicant" | "reviewer" | "admin";
+export type Role = "applicant" | "admin" | "super_admin" | "ceo";
 
 export type Gender = "male" | "female" | "other" | "prefer_not_to_say" | "";
 
@@ -100,4 +100,43 @@ export interface Page<T> {
   next: string | null;
   previous: string | null;
   results: T[];
+}
+
+export interface ManagedUser {
+  id: number;
+  email: string | null;
+  username: string;
+  first_name: string;
+  last_name: string;
+  phone: string | null;
+  role: Role;
+  email_verified: boolean;
+  is_active: boolean;
+  date_joined: string;
+}
+
+export interface EmailActivity {
+  sent_last_30_days: number;
+  failed_last_30_days: number;
+  recent: Array<{
+    id: string;
+    purpose: string;
+    recipient: string;
+    subject: string;
+    status: string;
+    user_email: string | null;
+    created_at: string;
+  }>;
+}
+
+export interface Analytics {
+  kpis: {
+    total_applications: number;
+    submitted_last_30_days: number;
+    users: number;
+    pending_review: number;
+  };
+  approval_rate: number | null;
+  pipeline: Record<ApplicationStatus, number>;
+  email_activity: EmailActivity;
 }

@@ -20,7 +20,8 @@ from rest_framework.request import Request
 from rest_framework.test import APIClient, APIRequestFactory, APITestCase
 
 from .access import GoogleLoginThrottle, LoginIPThrottle
-from .models import AuditLog, Document, EmailOTP, KYCApplication
+from .models import AuditLog, Document, EmailLog, EmailOTP, KYCApplication
+from .otp import issue_otp
 
 User = get_user_model()
 
@@ -962,7 +963,7 @@ class ApplicationFlowTests(APITestCase):
         cache.clear()  # keep user-scoped write throttles deterministic per test
         self.applicant = make_user("user@kyc.local", User.Role.APPLICANT)
         self.other = make_user("other@kyc.local", User.Role.APPLICANT)
-        self.reviewer = make_user("rev@kyc.local", User.Role.REVIEWER)
+        self.reviewer = make_user("rev@kyc.local", User.Role.ADMIN)
 
     def auth(self, user, password="Passw0rd!"):
         res = self.client.post("/api/auth/token/", {"email": user.email, "password": password})
@@ -1593,7 +1594,7 @@ class AdminTests(TestCase):
             email="user3@kyc.local", username="user3", password="Passw0rd!"
         )
         reviewer = User.objects.create_user(
-            email="rev@kyc.local", username="rev", password="Passw0rd!", role=User.Role.REVIEWER
+            email="rev@kyc.local", username="rev", password="Passw0rd!", role=User.Role.ADMIN
         )
         app = KYCApplication.objects.create(
             applicant=applicant,
@@ -1614,3 +1615,263 @@ class AdminTests(TestCase):
         options = set(res.context["adminform"].form.fields["reviewer"].queryset)
         self.assertIn(reviewer, options)
         self.assertNotIn(applicant, options)
+
+
+@FAST_PASSWORD_HASHERS
+class RoleAccessTests(APITestCase):
+    """Each role reaches only its own surface: review queue, user management,
+    analytics."""
+
+    def setUp(self):
+        cache.clear()  # write throttles are user-scoped; keep tests independent
+        self.applicant = make_user("app@kyc.local", User.Role.APPLICANT)
+        self.admin = make_user("admin@kyc.local", User.Role.ADMIN)
+        self.super_admin = make_user("super@kyc.local", User.Role.SUPER_ADMIN)
+        self.ceo = make_user("ceo@kyc.local", User.Role.CEO)
+
+    def auth(self, user):
+        res = self.client.post(
+            "/api/auth/token/", {"email": user.email, "password": "Passw0rd!"}
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+
+    def statuses(self, url):
+        """(applicant, admin, super_admin, ceo) response codes for a GET."""
+        codes = []
+        for user in (self.applicant, self.admin, self.super_admin, self.ceo):
+            self.auth(user)
+            codes.append(self.client.get(url).status_code)
+        return tuple(codes)
+
+    def test_review_queue_is_admin_and_super_admin_only(self):
+        self.assertEqual(
+            self.statuses("/api/review-queue/"),
+            (
+                status.HTTP_403_FORBIDDEN,
+                status.HTTP_200_OK,
+                status.HTTP_200_OK,
+                status.HTTP_403_FORBIDDEN,
+            ),
+        )
+
+    def test_user_management_is_super_admin_only(self):
+        self.assertEqual(
+            self.statuses("/api/users/"),
+            (
+                status.HTTP_403_FORBIDDEN,
+                status.HTTP_403_FORBIDDEN,
+                status.HTTP_200_OK,
+                status.HTTP_403_FORBIDDEN,
+            ),
+        )
+
+    def test_analytics_is_ceo_only(self):
+        self.assertEqual(
+            self.statuses("/api/analytics/"),
+            (
+                status.HTTP_403_FORBIDDEN,
+                status.HTTP_403_FORBIDDEN,
+                status.HTTP_403_FORBIDDEN,
+                status.HTTP_200_OK,
+            ),
+        )
+
+    def test_ceo_cannot_review(self):
+        app = KYCApplication.objects.create(
+            applicant=self.applicant,
+            status=KYCApplication.Status.SUBMITTED,
+            submitted_at=timezone.now(),
+            **{k: v for k, v in APP_PAYLOAD.items() if k != "address_line2"},
+        )
+        self.auth(self.ceo)
+        res = self.client.post(f"/api/applications/{app.pk}/review/", {"decision": "approve"})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_anonymous_is_rejected(self):
+        self.client.credentials()
+        for url in ("/api/users/", "/api/analytics/", "/api/review-queue/"):
+            self.assertEqual(
+                self.client.get(url).status_code, status.HTTP_401_UNAUTHORIZED, url
+            )
+
+
+@FAST_PASSWORD_HASHERS
+class UserManagementTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.super_admin = make_user("super@kyc.local", User.Role.SUPER_ADMIN)
+        self.applicant = make_user("app@kyc.local", User.Role.APPLICANT)
+        res = self.client.post(
+            "/api/auth/token/", {"email": self.super_admin.email, "password": "Passw0rd!"}
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+
+    def test_create_user_with_role(self):
+        res = self.client.post(
+            "/api/users/",
+            {
+                "email": "new.admin@kyc.local",
+                "password": "Str0ngPass!",
+                "first_name": "New",
+                "last_name": "Admin",
+                "role": User.Role.ADMIN,
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+        created = User.objects.get(email="new.admin@kyc.local")
+        self.assertEqual(created.role, User.Role.ADMIN)
+        # Admin-provisioned accounts skip the OTP gate, so they can log in now.
+        self.assertTrue(created.email_verified)
+        self.assertTrue(created.check_password("Str0ngPass!"))
+        self.assertNotIn("password", res.data)
+
+    def test_create_user_rejects_weak_password(self):
+        res = self.client.post(
+            "/api/users/",
+            {
+                "email": "weak@kyc.local",
+                "password": "password",
+                "first_name": "W",
+                "last_name": "K",
+                "role": User.Role.APPLICANT,
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("password", res.data)
+
+    def test_change_role(self):
+        res = self.client.patch(
+            f"/api/users/{self.applicant.pk}/", {"role": User.Role.ADMIN}, format="json"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.applicant.refresh_from_db()
+        self.assertEqual(self.applicant.role, User.Role.ADMIN)
+
+    def test_cannot_change_own_role(self):
+        res = self.client.patch(
+            f"/api/users/{self.super_admin.pk}/", {"role": User.Role.APPLICANT}, format="json"
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.super_admin.refresh_from_db()
+        self.assertEqual(self.super_admin.role, User.Role.SUPER_ADMIN)
+
+    def test_set_password(self):
+        res = self.client.post(
+            f"/api/users/{self.applicant.pk}/set_password/", {"new_password": "An0therPass!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.applicant.refresh_from_db()
+        self.assertTrue(self.applicant.check_password("An0therPass!"))
+
+    def test_set_password_rejects_weak_and_self(self):
+        res = self.client.post(
+            f"/api/users/{self.applicant.pk}/set_password/", {"new_password": "12345678"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        res = self.client.post(
+            f"/api/users/{self.super_admin.pk}/set_password/", {"new_password": "An0therPass!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.super_admin.refresh_from_db()
+        self.assertTrue(self.super_admin.check_password("Passw0rd!"))
+
+    def test_filters(self):
+        res = self.client.get("/api/users/", {"role": User.Role.APPLICANT})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        emails = [row["email"] for row in res.data["results"]]
+        self.assertEqual(emails, [self.applicant.email])
+
+        res = self.client.get("/api/users/", {"role": "bogus"})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        res = self.client.get("/api/users/", {"search": "super"})
+        self.assertEqual(
+            [row["email"] for row in res.data["results"]], [self.super_admin.email]
+        )
+
+    def test_delete_is_not_allowed(self):
+        res = self.client.delete(f"/api/users/{self.applicant.pk}/")
+        self.assertEqual(res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
+@FAST_PASSWORD_HASHERS
+class AnalyticsTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.ceo = make_user("ceo@kyc.local", User.Role.CEO)
+        self.applicant = make_user("app@kyc.local", User.Role.APPLICANT)
+        res = self.client.post(
+            "/api/auth/token/", {"email": self.ceo.email, "password": "Passw0rd!"}
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+
+    def make_app(self, status_value):
+        return KYCApplication.objects.create(
+            applicant=self.applicant,
+            status=status_value,
+            **{k: v for k, v in APP_PAYLOAD.items() if k != "address_line2"},
+        )
+
+    def test_payload_shape_and_approval_rate(self):
+        self.make_app(KYCApplication.Status.APPROVED)
+        self.make_app(KYCApplication.Status.APPROVED)
+        self.make_app(KYCApplication.Status.APPROVED)
+        self.make_app(KYCApplication.Status.REJECTED)
+        self.make_app(KYCApplication.Status.SUBMITTED)
+        EmailLog.objects.create(
+            user=self.applicant,
+            purpose=EmailLog.Purpose.VERIFY_EMAIL,
+            recipient=self.applicant.email,
+            subject="Verify",
+            status=EmailLog.Status.SENT,
+        )
+        EmailLog.objects.create(
+            user=self.applicant,
+            purpose=EmailLog.Purpose.RESET_PASSWORD,
+            recipient=self.applicant.email,
+            subject="Reset",
+            status=EmailLog.Status.FAILED,
+        )
+
+        res = self.client.get("/api/analytics/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["kpis"]["total_applications"], 5)
+        self.assertEqual(res.data["kpis"]["submitted_last_30_days"], 5)
+        self.assertEqual(res.data["kpis"]["users"], 2)
+        self.assertEqual(res.data["kpis"]["pending_review"], 1)
+        self.assertEqual(res.data["approval_rate"], 75.0)  # 3 of 4 decided
+        self.assertEqual(res.data["pipeline"]["approved"], 3)
+        self.assertEqual(res.data["pipeline"]["draft"], 0)
+        self.assertEqual(
+            set(res.data["pipeline"]), set(KYCApplication.Status.values)
+        )
+        emails = res.data["email_activity"]
+        self.assertEqual(emails["sent_last_30_days"], 1)
+        self.assertEqual(emails["failed_last_30_days"], 1)
+        self.assertEqual(len(emails["recent"]), 2)
+
+    def test_approval_rate_is_none_without_decisions(self):
+        self.make_app(KYCApplication.Status.SUBMITTED)
+        res = self.client.get("/api/analytics/")
+        self.assertIsNone(res.data["approval_rate"])
+        self.assertEqual(res.data["kpis"]["total_applications"], 1)
+
+
+@FAST_PASSWORD_HASHERS
+class EmailLogTests(APITestCase):
+    def test_registration_verification_email_is_logged(self):
+        res = self.client.post("/api/auth/register/", register_payload("logme@kyc.local"))
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.content)
+        log = EmailLog.objects.get()
+        self.assertEqual(log.purpose, EmailLog.Purpose.VERIFY_EMAIL)
+        self.assertEqual(log.status, EmailLog.Status.SENT)
+        self.assertEqual(log.recipient, "logme@kyc.local")
+
+    def test_send_failure_is_logged_as_failed(self):
+        user = make_user("boom@kyc.local", User.Role.APPLICANT)
+        with mock.patch("kyc.otp.send_mail", side_effect=RuntimeError("smtp down")):
+            with self.assertRaises(RuntimeError):
+                issue_otp(user, EmailOTP.Purpose.RESET_PASSWORD)
+        log = EmailLog.objects.get()
+        self.assertEqual(log.status, EmailLog.Status.FAILED)
+        self.assertEqual(log.purpose, EmailLog.Purpose.RESET_PASSWORD)
