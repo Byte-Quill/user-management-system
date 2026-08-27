@@ -212,6 +212,11 @@ export const listApplications = (page = 1) =>
 export const getApplication = (id: string) => request<KYCApplication>(`/applications/${id}/`);
 export const createApplication = (payload: ApplicationPayload) =>
   request<KYCApplication>("/applications/", { method: "POST", body: JSON.stringify(payload) });
+export const updateApplication = (id: string, payload: ApplicationPayload) =>
+  request<KYCApplication>(`/applications/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 export const submitApplication = (id: string) =>
   request<KYCApplication>(`/applications/${id}/submit/`, { method: "POST" });
 

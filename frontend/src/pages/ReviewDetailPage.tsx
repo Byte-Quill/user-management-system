@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
@@ -22,12 +22,17 @@ export default function ReviewDetailPage() {
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const loadRequestRef = useRef(0);
 
   const load = useCallback(async () => {
     if (!id) return;
+    const requestId = ++loadRequestRef.current;
     try {
-      setApp(await api.getApplication(id));
+      const application = await api.getApplication(id);
+      if (requestId !== loadRequestRef.current) return;
+      setApp(application);
     } catch {
+      if (requestId !== loadRequestRef.current) return;
       setError("Failed to load application.");
       return;
     }
@@ -36,13 +41,17 @@ export default function ReviewDetailPage() {
     try {
       setAuditError("");
       const trail = await api.fetchAudit(id);
+      if (requestId !== loadRequestRef.current) return;
       setAudit(trail.results);
     } catch {
+      if (requestId !== loadRequestRef.current) return;
       setAuditError("Failed to load the audit trail.");
     }
   }, [id]);
 
   useEffect(() => {
+    setApp(null);
+    setError("");
     load();
   }, [load]);
 

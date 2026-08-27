@@ -13,19 +13,14 @@ User = get_user_model()
 class Command(BaseCommand):
     help = "Create demo users (admin/reviewer/applicant) and a sample application."
 
-    def add_arguments(self, parser):
-        parser.add_argument(
-            "--force",
-            action="store_true",
-            help="Allow seeding with DJANGO_DEBUG=false (not recommended).",
-        )
-
     def handle(self, *args, **options):
-        if not settings.DEBUG and not options["force"]:
+        # No override: these are well-known credentials, so the command
+        # must never run against a production database.
+        if not settings.DEBUG:
             raise CommandError(
                 "seed_demo creates weak, well-known credentials (Admin@123 etc.) "
-                "and is meant for local development. Refusing to run with "
-                "DJANGO_DEBUG=false; pass --force to override."
+                "and is meant for local development only. Refusing to run with "
+                "DJANGO_DEBUG=false."
             )
         admin, created = User.objects.get_or_create(
             email="admin@kyc.local",

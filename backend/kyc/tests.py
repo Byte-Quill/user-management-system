@@ -8,6 +8,7 @@ from unittest import mock
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.models import SocialAccount, SocialLogin
 from allauth.socialaccount.providers.oauth2.client import OAuth2Error
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
@@ -1125,7 +1126,10 @@ class ApplicationFlowTests(APITestCase):
         # Capture the on-disk path before deletion so we can assert cleanup.
         file_path = Document.objects.get(pk=doc_id).file.path
         self.assertTrue(os.path.exists(file_path))
-        res = self.client.delete(f"/api/applications/{app_id}/documents/{doc_id}/")
+        # File cleanup is deferred to transaction commit (so a rollback cannot
+        # lose the file); TestCase never commits, so run the callbacks here.
+        with self.captureOnCommitCallbacks(execute=True):
+            res = self.client.delete(f"/api/applications/{app_id}/documents/{doc_id}/")
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(
             Document.objects.filter(pk=doc_id).exists(),
@@ -1232,6 +1236,189 @@ class ApplicationFlowTests(APITestCase):
         ):
             res = self.client.get(f"/api/documents/{doc_id}/download/?token={token}")
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_patch_rejected_after_submit(self):
+        """The editable-status check and the write happen under one row lock,
+        so a submitted application can never be patched."""
+        self.auth(self.applicant)
+        app_id = self.create_app()
+        self.upload_doc(app_id)
+        self.client.post(f"/api/applications/{app_id}/submit/")
+        res = self.client.patch(
+            f"/api/applications/{app_id}/", {"full_name": "Changed After Submit"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            KYCApplication.objects.get(pk=app_id).full_name, "Jane Doe"
+        )
+
+    def test_upload_rolls_back_file_on_audit_failure(self):
+        """If anything after the storage write fails, the transaction rolls
+        back and the orphaned PII file is removed from disk."""
+        self.auth(self.applicant)
+        app_id = self.create_app()
+        file = SimpleUploadedFile(
+            "passport.pdf",
+            b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF",
+            content_type="application/pdf",
+        )
+        with mock.patch("kyc.views.log_action", side_effect=RuntimeError("audit down")):
+            # Let the exception surface as a 500 instead of re-raising here.
+            self.client.raise_request_exception = False
+            try:
+                res = self.client.post(
+                    f"/api/applications/{app_id}/documents/",
+                    {"doc_type": "id_proof", "file": file},
+                    format="multipart",
+                )
+            finally:
+                self.client.raise_request_exception = True
+        self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Row rolled back...
+        self.assertEqual(Document.objects.filter(application_id=app_id).count(), 0)
+        # ...and no orphaned file remains in the application's storage dir.
+        app_dir = os.path.join(settings.MEDIA_ROOT, "documents", str(app_id))
+        self.assertFalse(
+            os.path.isdir(app_dir) and os.listdir(app_dir),
+            f"orphaned upload left in {app_dir}",
+        )
+
+
+@FAST_PASSWORD_HASHERS
+class TokenRevocationTests(APITestCase):
+    """CHECK_REVOKE_TOKEN: a password change invalidates every issued token."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_password_reset_revokes_existing_tokens(self):
+        make_user("revoke@kyc.local", User.Role.APPLICANT)
+        res = self.client.post(
+            "/api/auth/token/", {"email": "revoke@kyc.local", "password": "Passw0rd!"}
+        )
+        old_access = res.data["access"]
+        res = self.client.get(
+            "/api/auth/me/", HTTP_AUTHORIZATION=f"Bearer {old_access}"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Reset the password via the OTP flow.
+        self.client.post("/api/auth/password-reset/request/", {"email": "revoke@kyc.local"})
+        res = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {
+                "email": "revoke@kyc.local",
+                "code": last_otp_code(),
+                "new_password": "N3wSecret!",
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # The pre-reset access token must now be rejected...
+        res = self.client.get(
+            "/api/auth/me/", HTTP_AUTHORIZATION=f"Bearer {old_access}"
+        )
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+        # ...and so must the pre-reset refresh cookie (a stolen refresh token
+        # cannot mint new access tokens after the victim resets).
+        res = self.client.post("/api/auth/token/refresh/")
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+        # The new password works.
+        res = self.client.post(
+            "/api/auth/token/", {"email": "revoke@kyc.local", "password": "N3wSecret!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+
+@FAST_PASSWORD_HASHERS
+class ThrottleFailureTests(APITestCase):
+    """Auth throttles must fail CLOSED when the cache cannot be written."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_login_denied_when_cache_write_fails(self):
+        make_user("throttle@kyc.local", User.Role.APPLICANT)
+        with mock.patch(
+            "kyc.access.cache.set", return_value=False
+        ):
+            res = self.client.post(
+                "/api/auth/token/",
+                {"email": "throttle@kyc.local", "password": "Passw0rd!"},
+            )
+        # Failing open would return 200 with a valid session.
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_otp_request_denied_when_cache_write_fails(self):
+        with mock.patch(
+            "kyc.access.cache.set", return_value=False
+        ):
+            res = self.client.post(
+                "/api/auth/password-reset/request/", {"email": "ghost@kyc.local"}
+            )
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+class RequestIDMiddlewareTests(TestCase):
+    def test_malicious_request_id_is_replaced(self):
+        res = self.client.get("/healthz", HTTP_X_REQUEST_ID="evil\ninjected: yes")
+        self.assertRegex(res.headers["X-Request-ID"], r"^[0-9a-f]{32}$")
+
+    def test_oversized_request_id_is_replaced(self):
+        res = self.client.get("/healthz", HTTP_X_REQUEST_ID="x" * 65)
+        self.assertRegex(res.headers["X-Request-ID"], r"^[0-9a-f]{32}$")
+
+    def test_valid_request_id_is_preserved(self):
+        res = self.client.get("/healthz", HTTP_X_REQUEST_ID="req-123.abc_XYZ")
+        self.assertEqual(res.headers["X-Request-ID"], "req-123.abc_XYZ")
+
+
+class SeedDemoTests(TestCase):
+    def test_refuses_without_debug_and_no_force_flag(self):
+        from django.core.management import CommandError, call_command
+
+        with override_settings(DEBUG=False):
+            with self.assertRaises(CommandError):
+                call_command("seed_demo")
+        self.assertFalse(User.objects.filter(email="admin@kyc.local").exists())
+
+
+@FAST_PASSWORD_HASHERS
+@skipUnlessDBFeature("has_select_for_update")
+class OTPResendConcurrencyTests(TransactionTestCase):
+    """Concurrent resend requests must not double-send (needs real row locks)."""
+
+    def test_concurrent_resends_send_one_email(self):
+        client = APIClient()
+        res = client.post(
+            "/api/auth/register/", register_payload("race@kyc.local")
+        )
+        assert res.status_code == 201, res.content
+        # Clear the cooldown so both requests are eligible to send.
+        EmailOTP.objects.filter(user__email="race@kyc.local").update(last_sent_at=None)
+        sent_before = len(mail.outbox)
+
+        barrier = threading.Barrier(2)
+
+        def resend():
+            barrier.wait()
+            client.post("/api/auth/verify-email/resend/", {"email": "race@kyc.local"})
+
+        threads = [threading.Thread(target=resend) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Exactly one email: the row lock serializes the cooldown check.
+        self.assertEqual(len(mail.outbox), sent_before + 1)
+        # And only one active OTP remains.
+        self.assertEqual(
+            EmailOTP.objects.filter(
+                user__email="race@kyc.local", consumed_at__isnull=True
+            ).count(),
+            1,
+        )
 
 
 @FAST_PASSWORD_HASHERS

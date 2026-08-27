@@ -12,13 +12,17 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
 from .models import EmailOTP
 
 logger = logging.getLogger("kyc.otp")
+
+User = get_user_model()
 
 OTP_LENGTH = 6
 OTP_TTL = timedelta(minutes=10)
@@ -46,9 +50,6 @@ def generate_code() -> str:
 
 def _purge_old() -> None:
     """Delete long-expired rows, amortized across issuances (1-in-10)."""
-    if secrets.randbelow(10) != 0:
-        return
-    EmailOTP.objects.filter(expires_at__lt=timezone.now() - OTP_PURGE_AFTER).delete()
     if secrets.randbelow(10) != 0:
         return
     EmailOTP.objects.filter(expires_at__lt=timezone.now() - OTP_PURGE_AFTER).delete()
@@ -91,8 +92,13 @@ def latest_active(user, purpose: str):
     )
 
 
-def issue_otp(user, purpose: str) -> EmailOTP:
-    """Create a fresh OTP, send it, and invalidate any predecessor."""
+def _issue_otp_db(user, purpose: str):
+    """DB-only issuance: invalidate predecessors and create the new row.
+
+    Returns ``(otp, code)``. Callers must hold the per-user lock (see
+    ``issue_otp`` / ``request_otp``) and send the email only after the
+    transaction commits, so an HTTP send never holds a DB connection or lock.
+    """
     now = timezone.now()
     # Only the latest code may work: mark unconsumed predecessors consumed.
     EmailOTP.objects.filter(
@@ -106,6 +112,16 @@ def issue_otp(user, purpose: str) -> EmailOTP:
         expires_at=now + OTP_TTL,
         last_sent_at=now,
     )
+    return otp, code
+
+
+def issue_otp(user, purpose: str) -> EmailOTP:
+    """Create a fresh OTP, send it, and invalidate any predecessor."""
+    with transaction.atomic():
+        # Row lock on the user: concurrent issuances for the same user
+        # serialize, so they cannot both invalidate each other's predecessor.
+        User.objects.select_for_update().get(pk=user.pk)
+        otp, code = _issue_otp_db(user, purpose)
     _send_otp_email(user, purpose, code)
     _purge_old()
     return otp
@@ -117,14 +133,23 @@ def request_otp(user, purpose: str) -> bool:
     Returns True when an email was sent. Callers must return a generic
     response either way (enumeration safety).
     """
-    existing = latest_active(user, purpose)
-    if (
-        existing
-        and existing.last_sent_at
-        and timezone.now() - existing.last_sent_at < OTP_RESEND_COOLDOWN
-    ):
-        return False
-    issue_otp(user, purpose)
+    code = None
+    with transaction.atomic():
+        # Row lock on the user: the cooldown check and the issuance happen
+        # atomically, so two concurrent resend requests cannot both pass the
+        # check and double-send.
+        User.objects.select_for_update().get(pk=user.pk)
+        existing = latest_active(user, purpose)
+        if (
+            existing
+            and existing.last_sent_at
+            and timezone.now() - existing.last_sent_at < OTP_RESEND_COOLDOWN
+        ):
+            return False
+        _, code = _issue_otp_db(user, purpose)
+    # Send outside the transaction/lock (see _issue_otp_db).
+    _send_otp_email(user, purpose, code)
+    _purge_old()
     return True
 
 

@@ -1,4 +1,5 @@
 """Access control for the KYC API: role/ownership permissions and throttles."""
+import logging
 import math
 import time
 
@@ -8,6 +9,8 @@ from rest_framework.exceptions import Throttled
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.throttling import AnonRateThrottle, BaseThrottle, ScopedRateThrottle
 from rest_framework.views import exception_handler
+
+logger = logging.getLogger("kyc.access")
 
 
 class IsReviewer(BasePermission):
@@ -62,7 +65,13 @@ class LoginThrottle(BaseThrottle):
         if entry["count"] >= settings.LOGIN_THROTTLE_MAX_ATTEMPTS:
             return False
         entry["count"] += 1
-        cache.set(self.key, entry, settings.LOGIN_THROTTLE_WINDOW_SECONDS)
+        if not cache.set(self.key, entry, settings.LOGIN_THROTTLE_WINDOW_SECONDS):
+            # Cache write failed (DB outage): fail CLOSED. Failing open would
+            # treat every request as a fresh window and disable brute-force
+            # protection exactly when the system is already degraded. Login
+            # needs the DB anyway, so denying adds no new failure mode.
+            logger.warning("Login throttle cache write failed; denying request")
+            return False
         return True
 
     def wait(self):
@@ -116,7 +125,11 @@ class OTPRequestThrottle(BaseThrottle):
         if entry["count"] >= settings.OTP_REQUEST_MAX:
             return False
         entry["count"] += 1
-        cache.set(self.key, entry, settings.OTP_REQUEST_WINDOW_SECONDS)
+        if not cache.set(self.key, entry, settings.OTP_REQUEST_WINDOW_SECONDS):
+            # Fail closed (see LoginThrottle): an uncounted OTP endpoint is an
+            # unbounded email bomb.
+            logger.warning("OTP request throttle cache write failed; denying request")
+            return False
         return True
 
     def wait(self):

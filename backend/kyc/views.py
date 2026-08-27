@@ -123,12 +123,25 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         return qs.filter(applicant=user)
 
     def perform_create(self, serializer):
-        application = serializer.save(applicant=self.request.user)
-        log_action(application, self.request.user, AuditLog.Action.CREATED)
+        # Atomic so the application row and its audit entry commit together.
+        with transaction.atomic():
+            application = serializer.save(applicant=self.request.user)
+            log_action(application, self.request.user, AuditLog.Action.CREATED)
 
     def perform_update(self, serializer):
-        application = serializer.save()
-        log_action(application, self.request.user, AuditLog.Action.UPDATED)
+        with transaction.atomic():
+            # Row lock: a concurrent submit/review cannot flip the status
+            # between the editable check and the write.
+            locked = KYCApplication.objects.select_for_update().get(
+                pk=serializer.instance.pk
+            )
+            if locked.status not in (
+                KYCApplication.Status.DRAFT,
+                KYCApplication.Status.RESUBMISSION_REQUESTED,
+            ):
+                raise ValidationError("This application can no longer be edited.")
+            application = serializer.save()
+            log_action(application, self.request.user, AuditLog.Action.UPDATED)
 
     @action(detail=True, methods=["post"])
     def submit(self, request, pk=None):
@@ -156,15 +169,6 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
     )
     def documents(self, request, pk=None):
         application = self.get_object()
-        if application.applicant_id != request.user.id:
-            raise ValidationError("Only the applicant can upload documents.")
-        if application.status not in (
-            KYCApplication.Status.DRAFT,
-            KYCApplication.Status.RESUBMISSION_REQUESTED,
-        ):
-            raise ValidationError(
-                "Documents can only be uploaded while the application is editable."
-            )
 
         file_obj = request.FILES.get("file")
         doc_type = request.data.get("doc_type")
@@ -185,14 +189,44 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             raise ValidationError(
                 exc.message_dict if hasattr(exc, "message_dict") else exc.messages
             ) from exc
-        document.save()
 
-        log_action(
-            application,
-            request.user,
-            AuditLog.Action.DOCUMENT_UPLOADED,
-            detail=f"{doc_type}: {file_obj.name}",
-        )
+        try:
+            with transaction.atomic():
+                # Row lock: a concurrent submit cannot flip the status between
+                # the editable check and the write.
+                application = KYCApplication.objects.select_for_update().get(
+                    pk=application.pk
+                )
+                if application.applicant_id != request.user.id:
+                    raise ValidationError("Only the applicant can upload documents.")
+                if application.status not in (
+                    KYCApplication.Status.DRAFT,
+                    KYCApplication.Status.RESUBMISSION_REQUESTED,
+                ):
+                    raise ValidationError(
+                        "Documents can only be uploaded while the application is editable."
+                    )
+                document.save()
+                log_action(
+                    application,
+                    request.user,
+                    AuditLog.Action.DOCUMENT_UPLOADED,
+                    detail=f"{doc_type}: {file_obj.name}",
+                )
+        except Exception:
+            # document.save() writes the file to storage before the row is
+            # inserted; if anything after that fails (row insert, audit log),
+            # the transaction rolls back but the file would remain on disk.
+            # Once the storage write completes, file.name holds the generated
+            # storage path (documents/...) rather than the original upload
+            # name, so delete it to avoid orphaning PII.
+            try:
+                if document.file.name and document.file.name != file_obj.name:
+                    document.file.delete(save=False)
+            except Exception:
+                logger.exception("Failed to clean up orphaned document upload")
+            raise
+
         return Response(
             DocumentSerializer(document, context=self.get_serializer_context()).data,
             status=status.HTTP_201_CREATED,
@@ -206,31 +240,37 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         PII file always disappear together.
         """
         application = self.get_object()
-        if application.applicant_id != request.user.id:
-            raise ValidationError("Only the applicant can remove documents.")
-        if application.status not in (
-            KYCApplication.Status.DRAFT,
-            KYCApplication.Status.RESUBMISSION_REQUESTED,
-        ):
-            raise ValidationError(
-                "Documents can only be removed while the application is editable."
+        with transaction.atomic():
+            # Row lock: a concurrent submit cannot flip the status between the
+            # editable check and the delete.
+            application = KYCApplication.objects.select_for_update().get(
+                pk=application.pk
             )
+            if application.applicant_id != request.user.id:
+                raise ValidationError("Only the applicant can remove documents.")
+            if application.status not in (
+                KYCApplication.Status.DRAFT,
+                KYCApplication.Status.RESUBMISSION_REQUESTED,
+            ):
+                raise ValidationError(
+                    "Documents can only be removed while the application is editable."
+                )
 
-        try:
-            document = application.documents.get(pk=doc_id)
-        except (Document.DoesNotExist, ValueError, DjangoValidationError) as exc:
-            # ValueError/ValidationError: malformed UUID in the URL -> 404, never 500.
-            raise NotFound("Document not found.") from exc
+            try:
+                document = application.documents.get(pk=doc_id)
+            except (Document.DoesNotExist, ValueError, DjangoValidationError) as exc:
+                # ValueError/ValidationError: malformed UUID in the URL -> 404, never 500.
+                raise NotFound("Document not found.") from exc
 
-        doc_type = document.doc_type
-        original_filename = document.original_filename
-        document.delete()  # post_delete signal removes the file from disk
-        log_action(
-            application,
-            request.user,
-            AuditLog.Action.DOCUMENT_REMOVED,
-            detail=f"{doc_type}: {original_filename}",
-        )
+            doc_type = document.doc_type
+            original_filename = document.original_filename
+            document.delete()  # post_delete signal removes the file from disk
+            log_action(
+                application,
+                request.user,
+                AuditLog.Action.DOCUMENT_REMOVED,
+                detail=f"{doc_type}: {original_filename}",
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(

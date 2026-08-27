@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useParams } from "react-router";
 
 import * as api from "../api";
 import { useAuth } from "../auth";
@@ -31,6 +31,9 @@ const EMPTY: ApplicationPayload = {
 export default function ApplicationFormPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  // Present when editing an existing draft (route /applications/:id/edit).
+  const { id } = useParams<{ id: string }>();
+  const [loadingExisting, setLoadingExisting] = useState(!!id);
   // Pre-fill what registration already collected so the applicant does not
   // re-type identity data.
   const [form, setForm] = useState<ApplicationPayload>(() => ({
@@ -51,6 +54,47 @@ export default function ApplicationFormPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors<keyof ApplicationPayload>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Edit mode: load the existing application into the form.
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const app = await api.getApplication(id);
+        if (cancelled) return;
+        if (app.status !== "draft" && app.status !== "resubmission_requested") {
+          setError("This application can no longer be edited.");
+          setLoadingExisting(false);
+          return;
+        }
+        setForm({
+          full_name: app.full_name,
+          date_of_birth: app.date_of_birth,
+          nationality: app.nationality,
+          phone: app.phone,
+          address_line1: app.address_line1,
+          address_line2: app.address_line2,
+          city: app.city,
+          state: app.state,
+          postal_code: app.postal_code,
+          country: app.country,
+          id_type: app.id_type,
+          id_number: app.id_number,
+          id_expiry: app.id_expiry ?? "",
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setError(api.errorMessage(err, "Failed to load application."));
+        }
+      } finally {
+        if (!cancelled) setLoadingExisting(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const set =
     (key: keyof ApplicationPayload) =>
@@ -76,18 +120,26 @@ export default function ApplicationFormPage() {
     setBusy(true);
     try {
       const payload: ApplicationPayload = { ...form, id_expiry: form.id_expiry || null };
-      const app = await api.createApplication(payload);
+      const app = id
+        ? await api.updateApplication(id, payload)
+        : await api.createApplication(payload);
       navigate(`/applications/${app.id}`);
     } catch (err) {
-      setError(api.errorMessage(err, "Failed to create application."));
+      setError(
+        api.errorMessage(err, id ? "Failed to update application." : "Failed to create application.")
+      );
     } finally {
       setBusy(false);
     }
   };
 
+  if (loadingExisting) return <p className="p-8 text-center text-slate-500">Loading…</p>;
+
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="mb-6 text-2xl font-bold">New KYC Application</h1>
+      <h1 className="mb-6 text-2xl font-bold">
+        {id ? "Edit KYC Application" : "New KYC Application"}
+      </h1>
       <form onSubmit={onSubmit} className="space-y-6 rounded-lg bg-white p-6 shadow">
         <section>
           <h2 className="mb-3 text-lg font-semibold text-slate-800">Personal Information</h2>
@@ -181,7 +233,7 @@ export default function ApplicationFormPage() {
             disabled={busy}
             className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {busy ? "Saving…" : "Save draft"}
+            {busy ? "Saving…" : id ? "Save changes" : "Save draft"}
           </button>
         </div>
       </form>

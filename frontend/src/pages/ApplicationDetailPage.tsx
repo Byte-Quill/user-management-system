@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import * as api from "../api";
@@ -36,13 +36,18 @@ export default function ApplicationDetailPage() {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [busy, setBusy] = useState(false);
+  const loadRequestRef = useRef(0);
+  const auditRequestRef = useRef(0);
 
   const load = useCallback(async () => {
     if (!id) return;
+    const requestId = ++loadRequestRef.current;
     try {
       const application = await api.getApplication(id);
+      if (requestId !== loadRequestRef.current) return;
       setApp(application);
     } catch (err) {
+      if (requestId !== loadRequestRef.current) return;
       setError(
         err instanceof api.ApiError && err.status === 404
           ? "Application not found. It may have been removed, or you don't have access."
@@ -54,14 +59,17 @@ export default function ApplicationDetailPage() {
   const loadAudit = useCallback(
     async (pageNum: number) => {
       if (!id) return;
+      const requestId = ++auditRequestRef.current;
       setAuditError("");
       try {
         const trail = await api.fetchAudit(id, pageNum);
+        if (requestId !== auditRequestRef.current) return;
         setAudit(trail.results);
         setAuditCount(trail.count);
         setAuditHasNext(!!trail.next);
         setAuditHasPrev(!!trail.previous);
       } catch {
+        if (requestId !== auditRequestRef.current) return;
         // Scoped to the audit section: a trail failure must not wipe the
         // whole application view.
         setAuditError("Failed to load the audit trail.");
@@ -71,6 +79,8 @@ export default function ApplicationDetailPage() {
   );
 
   useEffect(() => {
+    setApp(null);
+    setError("");
     load();
   }, [load]);
 
@@ -110,7 +120,7 @@ export default function ApplicationDetailPage() {
       setFile(null);
       setFileError("");
       setNotice("Document uploaded.");
-      await load();
+      await Promise.all([load(), loadAudit(auditPage)]);
     } catch (err) {
       setActionError(api.errorMessage(err, "Upload failed. Please try again."));
     } finally {
@@ -126,7 +136,7 @@ export default function ApplicationDetailPage() {
     try {
       await api.submitApplication(id);
       setNotice("Application submitted for review.");
-      await load();
+      await Promise.all([load(), loadAudit(auditPage)]);
     } catch (err) {
       setActionError(api.errorMessage(err, "Submit failed. Please try again."));
     } finally {
@@ -243,7 +253,7 @@ export default function ApplicationDetailPage() {
       </div>
 
       {editable && isOwner && (
-        <div className="rounded-lg bg-white p-6 shadow">
+        <div className="flex items-center gap-3 rounded-lg bg-white p-6 shadow">
           <button
             onClick={submit}
             disabled={busy || app.documents.length === 0}
@@ -251,8 +261,14 @@ export default function ApplicationDetailPage() {
           >
             Submit for review
           </button>
+          <Link
+            to={`/applications/${app.id}/edit`}
+            className="rounded border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Edit details
+          </Link>
           {app.documents.length === 0 && (
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="text-sm text-slate-500">
               Upload at least one document before submitting.
             </p>
           )}

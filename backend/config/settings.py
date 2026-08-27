@@ -188,6 +188,12 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
+    # Revoke ALL tokens (access + refresh) when the password changes: each
+    # token carries a hash of the password it was issued with, and
+    # JWTAuthentication rejects tokens whose hash no longer matches. Without
+    # this, a stolen refresh token would survive a password reset for its
+    # full 7-day lifetime.
+    "CHECK_REVOKE_TOKEN": True,
 }
 
 # OTP emails via the Resend HTTP API (kyc/email.py).

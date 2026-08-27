@@ -8,7 +8,7 @@ from django.contrib.auth.models import UserManager as DjangoUserManager
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.core.signing import TimestampSigner
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -338,9 +338,16 @@ def cleanup_document_files(sender, instance, **kwargs):
     cleanup in a signal therefore covers every deletion path (API delete,
     admin single/bulk delete, and application cascade) so identity documents
     are never left orphaned on disk.
+
+    The delete is deferred to transaction commit: file removal is not
+    transactional, so deleting immediately would lose the file if the
+    surrounding transaction later rolls back (row restored, file gone).
+    Outside an atomic block, ``on_commit`` runs immediately.
     """
     if instance.file:
-        instance.file.delete(save=False)
+        storage = instance.file.storage
+        name = instance.file.name
+        transaction.on_commit(lambda: storage.delete(name))
 
 
 class AuditLog(models.Model):

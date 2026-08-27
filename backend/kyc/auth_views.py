@@ -24,7 +24,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.settings import api_settings as jwt_settings
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.utils import get_md5_hash_password
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .access import (
@@ -132,6 +134,31 @@ class CookieTokenRefreshView(TokenRefreshView):
             data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
             data["refresh"] = request.COOKIES[COOKIE_NAME]
             request._full_data = data
+        # CHECK_REVOKE_TOKEN only guards access-token authentication; the
+        # refresh endpoint must enforce the same check itself, or a stolen
+        # refresh token would survive a password reset for its full lifetime.
+        if jwt_settings.CHECK_REVOKE_TOKEN and request.data.get("refresh"):
+            try:
+                token = RefreshToken(request.data["refresh"])
+            except TokenError:
+                token = None  # invalid/expired: let super() produce the error
+            if token is not None:
+                user = User.objects.filter(pk=token["user_id"]).first()
+                if (
+                    user is None
+                    or token.get(jwt_settings.REVOKE_TOKEN_CLAIM)
+                    != get_md5_hash_password(user.password)
+                ):
+                    logger.warning(
+                        "Refresh rejected after password change for user %s",
+                        token["user_id"],
+                    )
+                    response = Response(
+                        {"detail": "Token is invalid or expired"},
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+                    _delete_refresh_cookie(response)
+                    return response
         response = super().post(request, *args, **kwargs)
         if response.status_code == status.HTTP_200_OK:
             new_refresh = response.data.pop("refresh", None)

@@ -1,5 +1,6 @@
 """Request ID middleware for correlation logging."""
 import logging
+import re
 import threading
 import uuid
 
@@ -11,6 +12,11 @@ logger = logging.getLogger("kyc.request")
 # shared across threads, so a bare attribute set would race.
 _local = threading.local()
 
+# Accepted shape for client/proxy-supplied IDs: bounded, log-safe characters
+# only. Anything else (oversized, control chars, injection attempts) is
+# replaced with a generated UUID so logs cannot be spoofed or polluted.
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
 
 def get_request_id() -> str:
     """Return the current thread's request ID (or '-' outside a request)."""
@@ -21,8 +27,11 @@ class RequestIDMiddleware(MiddlewareMixin):
     """Attach a request ID to each request and response for tracing."""
 
     def process_request(self, request):
-        # Prefer an incoming header (e.g. from a load balancer).
-        request_id = request.META.get("HTTP_X_REQUEST_ID") or uuid.uuid4().hex
+        # Prefer an incoming header (e.g. from a load balancer), but only if
+        # it matches the strict bounded format; otherwise generate one.
+        request_id = request.META.get("HTTP_X_REQUEST_ID") or ""
+        if not _REQUEST_ID_RE.match(request_id):
+            request_id = uuid.uuid4().hex
         request.request_id = request_id
         _local.request_id = request_id
         return None

@@ -56,6 +56,7 @@ export default function App() {
         >
           <Route path="/" element={<DashboardPage />} />
           <Route path="/applications/new" element={<ApplicationFormPage />} />
+          <Route path="/applications/:id/edit" element={<ApplicationFormPage />} />
           <Route path="/applications/:id" element={<ApplicationDetailPage />} />
           <Route
             path="/review"

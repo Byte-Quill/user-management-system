@@ -16,20 +16,24 @@ export function usePaginatedList<T>(
   // Keep the message stable so `load` identity doesn't churn on each render.
   const errorMessageRef = useRef(errorMessage);
   errorMessageRef.current = errorMessage;
+  const requestIdRef = useRef(0);
 
   const load = useCallback(async (pageNumber: number) => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError("");
     try {
       const data = await fetcher(pageNumber);
+      if (requestId !== requestIdRef.current) return;
       setItems(data.results);
       setCount(data.count);
       setHasNext(!!data.next);
       setHasPrev(!!data.previous);
     } catch {
+      if (requestId !== requestIdRef.current) return;
       setError(errorMessageRef.current);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }, [fetcher]);
 
