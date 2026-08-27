@@ -12,7 +12,9 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
-    "types": ["vite/client"],
+    // Explicit "types" disables auto @types inclusion, so bun is listed here
+    // for the `bun:test` typings used by *.test.ts alongside vite/client.
+    "types": ["vite/client", "bun"],
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true

@@ -15,8 +15,11 @@ export const MAX_FILE_SIZE_MB = 5;
 export const ALLOWED_FILE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".pdf"];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Person names: Unicode letters plus spaces, hyphens, apostrophes, periods.
-const NAME_RE = /^(?:[^\W\d_]|[ \-'.])+$/u;
+// Person names: Unicode letters plus spaces, hyphens, apostrophes and periods.
+// \p{L}\p{M}* mirrors Python's Unicode-aware [^\W\d_] (JS \w is ASCII-only, so
+// [^\W\d_] would wrongly reject CJK/non-Latin names the backend accepts);
+// \p{M} covers combining marks (e.g. decomposed accents).
+const NAME_RE = /^(?:\p{L}\p{M}*|[ \-'.])+$/u;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Small subset of Django's CommonPasswordValidator list.

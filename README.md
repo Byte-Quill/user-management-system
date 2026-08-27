@@ -367,7 +367,7 @@ Documents are stored under `media/documents/` (mount a persistent volume at
 
 ### Prerequisites
 
-- Python ≥ 3.12, Node ≥ 20, PostgreSQL
+- Python ≥ 3.12, Bun ≥ 1.4 (frontend runtime & package manager), PostgreSQL
 
 ### Backend
 
@@ -404,6 +404,9 @@ bun run dev                         # http://localhost:5173
 ```bash
 cd backend
 python manage.py test kyc           # 82 tests: auth, email OTP, Google Sign-In, flow, uploads, downloads, permissions, admin, cache
+
+cd ../frontend
+bun test                            # client-side validator suite (mirrors backend rules)
 ```
 
 Security posture and audit history: [docs/security-audit-2026-08-16.md](docs/security-audit-2026-08-16.md).
