@@ -227,22 +227,36 @@ SIMPLE_JWT = {
     "CHECK_REVOKE_TOKEN": True,
 }
 
-# Transactional email (OTP codes) via Django's built-in SMTP backend.
-# Resend is the default provider; SMTP settings work out of the box:
+# Transactional email (OTP codes) via Django 6.1's native MAILERS setting
+# (EMAIL_BACKEND/EMAIL_HOST/etc. are deprecated and removed in Django 7.0).
+# Resend is the default provider over SMTP:
 #   smtp.resend.com:587, user "resend", password = API key (re_...).
 # In DEBUG, emails are written to the console instead of sent.
-EMAIL_BACKEND = os.environ.get(
-    "EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend"
-    if DEBUG
-    else "django.core.mail.backends.smtp.EmailBackend",
-)
-EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.resend.com")
-EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
-EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").lower() == "true"
-EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "resend")
-EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
-EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
+# NOTE: OPTIONS are passed to the backend class, so SMTP-only keys are
+# only included for the SMTP backend (the console backend rejects them).
+MAILERS = {
+    "default": {
+        "BACKEND": os.environ.get(
+            "EMAIL_BACKEND",
+            "django.core.mail.backends.console.EmailBackend"
+            if DEBUG
+            else "django.core.mail.backends.smtp.EmailBackend",
+        ),
+        "OPTIONS": (
+            {
+                "host": os.environ.get("EMAIL_HOST", "smtp.resend.com"),
+                "use_tls": os.environ.get("EMAIL_USE_TLS", "true").lower() == "true",
+                "username": os.environ.get("EMAIL_HOST_USER", "resend"),
+                "password": os.environ.get("EMAIL_HOST_PASSWORD", ""),
+                # Per-call timeout; must stay well below gunicorn's 30s worker
+                # timeout so a degraded SMTP API cannot occupy sync workers.
+                "timeout": int(os.environ.get("EMAIL_TIMEOUT", "10")),
+            }
+            if not DEBUG
+            else {}
+        ),
+    }
+}
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Login Portal <onboarding@resend.dev>")
 
 # allauth verifies the Google ID token; SimpleJWT still issues the session.
