@@ -174,18 +174,25 @@ def request_otp(user, purpose: str) -> bool:
 def verify_otp(user, purpose: str, code: str) -> bool:
     """Constant-time compare against the active OTP; consume on success.
 
-    Wrong guesses increment the attempt counter atomically; after
-    OTP_MAX_ATTEMPTS the OTP is dead. Consumption is an atomic UPDATE guarded
-    on ``consumed_at IS NULL``, so single-use holds under concurrency.
+    Every attempt — including the successful one — claims a slot from the
+    attempt counter with a conditional atomic UPDATE, so the cap check is
+    part of the write itself and N concurrent wrong guesses cannot overshoot
+    OTP_MAX_ATTEMPTS via a stale read. Consumption is an atomic UPDATE
+    guarded on ``consumed_at IS NULL``, so single-use holds under concurrency.
     """
     code = (code or "").strip()
     otp = latest_active(user, purpose)
-    if otp is None or otp.attempts >= OTP_MAX_ATTEMPTS or not code:
+    if otp is None or not code:
+        return False
+    # Claim an attempt slot atomically: the attempts__lt guard makes the cap
+    # check and the increment a single statement, so racing verifications
+    # cannot all pass the old read-then-increment check.
+    claimed = EmailOTP.objects.filter(
+        pk=otp.pk, consumed_at__isnull=True, attempts__lt=OTP_MAX_ATTEMPTS
+    ).update(attempts=F("attempts") + 1)
+    if not claimed:
         return False
     if not hmac.compare_digest(otp.code_hash, _hash_code(code)):
-        EmailOTP.objects.filter(pk=otp.pk, consumed_at__isnull=True).update(
-            attempts=F("attempts") + 1
-        )
         return False
     consumed = EmailOTP.objects.filter(pk=otp.pk, consumed_at__isnull=True).update(
         consumed_at=timezone.now()

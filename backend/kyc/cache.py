@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from django.conf import settings
 from django.core.cache.backends.base import DEFAULT_TIMEOUT
 from django.core.cache.backends.db import BaseDatabaseCache
-from django.db import DatabaseError, connections, router
+from django.db import DatabaseError, connections, router, transaction
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now as tz_now
 
@@ -175,6 +175,44 @@ class LightweightDatabaseCache(BaseDatabaseCache):
                 [exp, key],
             )
             return bool(cursor.rowcount)
+
+    def incr(self, key, delta=1, version=None):
+        """Atomically increment an integer-valued key; return the new value.
+
+        Read-modify-write would be raced by concurrent gunicorn workers, so
+        the row is locked with ``SELECT ... FOR UPDATE`` inside a transaction
+        (PostgreSQL is the only supported backend). Raises ``ValueError`` for
+        a missing/expired key or a non-integer value — matching the stock
+        backends' contract. Fixed-window throttles (kyc/access.py) depend on
+        the atomicity to keep their counters exact under concurrency.
+        """
+        key = self.make_and_validate_key(key, version=version)
+        connection = self._connection(write=True)
+        quote_name = connection.ops.quote_name
+        table = quote_name(self._table)
+        # Atomic on the cache's own alias (routers may route it elsewhere):
+        # the FOR UPDATE row lock must be held to the commit.
+        with transaction.atomic(using=connection.alias):
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT {quote_name('value')} FROM {table} "
+                    f"WHERE {quote_name('cache_key')} = %s "
+                    f"AND {quote_name('expires')} >= %s FOR UPDATE",
+                    [key, connection.ops.adapt_datetimefield_value(tz_now())],
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    raise ValueError(f"Key '{key}' not found")
+                current = self._decode(row[0])
+                if isinstance(current, bool) or not isinstance(current, int):
+                    raise ValueError(f"Key '{key}' is not an integer")
+                new_value = current + delta
+                cursor.execute(
+                    f"UPDATE {table} SET {quote_name('value')} = %s "
+                    f"WHERE {quote_name('cache_key')} = %s",
+                    [self._encode(new_value), key],
+                )
+        return new_value
 
     def delete(self, key, version=None):
         key = self.make_and_validate_key(key, version=version)

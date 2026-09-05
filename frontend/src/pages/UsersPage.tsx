@@ -10,6 +10,7 @@ import type { ManagedUser, Role } from "../types";
 const roles: Role[] = ["applicant", "admin", "super_admin", "ceo"];
 
 export default function UsersPage() {
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("");
   const [message, setMessage] = useState("");
@@ -18,6 +19,14 @@ export default function UsersPage() {
   const [form, setForm] = useState({ email: "", first_name: "", last_name: "", password: "", role: "applicant" as Role });
   const fetchUsers = useCallback((page: number) => api.listUsers(page, search, role), [search, role, refresh]);
   const list = usePaginatedList(fetchUsers, "Failed to load users.");
+
+  // Debounce keystrokes: usePaginatedList refetches whenever the fetcher
+  // identity changes, so the debounced `search` keeps it to one call per
+  // settled input instead of one call per character typed.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   useEffect(() => { list.setPageNum(1); }, [search, role]);
 
@@ -61,7 +70,7 @@ export default function UsersPage() {
       <button className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 sm:col-span-2 lg:col-span-5 lg:w-fit">Create user</button>
     </form>
     {(message || formError || list.error) && <p className={formError || list.error ? "text-sm text-red-600" : "text-sm text-green-700"}>{formError || list.error || message}</p>}
-    <div className="flex gap-3"><TextInput placeholder="Search users" value={search} onChange={(e) => setSearch(e.target.value)} /><Select value={role} onChange={(e) => setRole(e.target.value)}><option value="">All roles</option>{roles.map((item) => <option key={item}>{item}</option>)}</Select></div>
+    <div className="flex gap-3"><TextInput placeholder="Search users" value={searchInput} onChange={(e) => setSearchInput(e.target.value)} /><Select value={role} onChange={(e) => setRole(e.target.value)}><option value="">All roles</option>{roles.map((item) => <option key={item}>{item}</option>)}</Select></div>
     <div className="overflow-x-auto rounded-lg bg-white shadow"><table className="w-full text-left text-sm"><thead className="border-b text-xs uppercase text-slate-500"><tr><th className="p-4">User</th><th className="p-4">Role</th><th className="p-4">Status</th><th className="p-4">Actions</th></tr></thead><tbody>{list.items.map((user) => <tr key={user.id} className="border-b last:border-0"><td className="p-4"><strong>{user.first_name} {user.last_name}</strong><br /><span className="text-slate-500">{user.email ?? user.phone ?? user.username}</span></td><td className="p-4"><Select value={user.role} onChange={(e) => void update(user, { role: e.target.value as Role })}>{roles.map((item) => <option key={item}>{item}</option>)}</Select></td><td className="p-4">{user.is_active ? "Active" : "Inactive"}</td><td className="space-x-3 p-4"><button className="text-blue-600 hover:underline" onClick={() => void update(user, { is_active: !user.is_active })}>{user.is_active ? "Deactivate" : "Activate"}</button><button className="text-blue-600 hover:underline" onClick={() => void resetPassword(user)}>Reset password</button></td></tr>)}</tbody></table></div>
     <Pagination count={list.count} pageNum={list.pageNum} hasNext={list.hasNext} hasPrev={list.hasPrev} loading={list.loading} onPageChange={list.setPageNum} label="users" />
   </div>;

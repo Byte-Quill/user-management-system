@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import TimestampSigner
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Count
 from django.http import FileResponse
 from django.utils import timezone
@@ -73,7 +73,16 @@ class RegisterView(generics.CreateAPIView):
     def perform_create(self, serializer):
         # Create the user, then issue the OTP — deliberately outside a
         # transaction so the external HTTP send never holds a DB connection.
-        user = serializer.save()
+        try:
+            user = serializer.save()
+        except IntegrityError as exc:
+            # Two concurrent registrations can pass the serializer's
+            # existence checks and then lose to the DB unique constraints
+            # (email/phone, or the generated user ID). Translate the race
+            # into the same 400 the pre-check would have returned.
+            raise ValidationError(
+                "An account with these details already exists."
+            ) from exc
         # Phone-only accounts have no email to verify, so skip the OTP.
         if not user.email:
             return
@@ -358,10 +367,38 @@ class UserManagementViewSet(viewsets.ModelViewSet):
             return AdminUserUpdateSerializer
         return AdminUserSerializer
 
+    def perform_create(self, serializer):
+        try:
+            serializer.save()
+        except IntegrityError as exc:
+            # Concurrent creates can pass the serializer's existence checks
+            # and lose to the DB unique constraints (email/phone/username).
+            raise ValidationError(
+                "An account with these details already exists."
+            ) from exc
+
     def perform_update(self, serializer):
         if serializer.instance.pk == self.request.user.pk:
             raise ValidationError("You cannot change your own role or status.")
-        serializer.save()
+        with transaction.atomic():
+            # Lock the active-super-admin set for the check-and-change, so
+            # two concurrent mutual demotions cannot both commit and leave
+            # the deployment with zero active super admins (only reachable
+            # via that race: single actors can never target themselves, and
+            # the actor is always one remaining active super admin).
+            list(
+                User.objects.select_for_update()
+                .filter(role=User.Role.SUPER_ADMIN, is_active=True)
+                .order_by("pk")
+                .values_list("pk", flat=True)
+            )
+            serializer.save()
+            if not User.objects.filter(
+                role=User.Role.SUPER_ADMIN, is_active=True
+            ).exists():
+                raise ValidationError(
+                    "Cannot demote or deactivate the last active super admin."
+                )
 
     @action(detail=True, methods=["post"])
     def set_password(self, request, pk=None):

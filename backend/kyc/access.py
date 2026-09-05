@@ -5,6 +5,7 @@ import time
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import DatabaseError
 from rest_framework.exceptions import Throttled
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.throttling import AnonRateThrottle, BaseThrottle, ScopedRateThrottle
@@ -53,40 +54,40 @@ class IsOwnerOrReviewer(BasePermission):
 # Login attempts are bounded two ways: per credential (email + IP) and per IP
 # ("login_ip" scope). Counters live in the Postgres-backed cache, so they are
 # shared across all gunicorn workers.
-class LoginThrottle(BaseThrottle):
-    """Per-credential login throttle (email + IP) to stop stuffing one account.
+class FixedWindowThrottle(BaseThrottle):
+    """Shared atomic fixed-window counter for credential/OTP endpoints.
 
-    Keying on email alone lets an attacker distribute attempts across many
-    accounts; keying on IP alone poisons a shared proxy/NAT address. Fixed
-    window of LOGIN_THROTTLE_MAX_ATTEMPTS per LOGIN_THROTTLE_WINDOW_SECONDS.
+    The counter is a single integer per (bucket, identifier). ``cache.add()``
+    creates the slot race-free and ``cache.incr()`` bumps it under a row lock
+    (see ``kyc.cache.LightweightDatabaseCache.incr``), so concurrent workers
+    cannot overshoot the cap the way a get-then-set window can. Windows are
+    deterministic clock buckets, so no per-client reset bookkeeping is needed.
     """
 
     timer = time.time
 
-    def allow_request(self, request, view):
-        ident = self.get_ident(request)
-        # request.data may be a dict (JSON) or a QueryDict (form/multipart).
-        data = request.data
-        email = (data.get("email") or "").strip().lower() if hasattr(data, "get") else ""
-        self.key = f"login-throttle:{email}:{ident}"
+    def _allow(self, key_prefix: str, max_attempts: int, window_seconds: int) -> bool:
         now = self.timer()
-        entry = cache.get(self.key)
-        # Guard against legacy/foreign cache values (older code stored a bare
-        # int); treat anything unexpected as a fresh window.
-        if not isinstance(entry, dict) or entry.get("reset", 0) <= now:
-            entry = {"count": 0, "reset": now + settings.LOGIN_THROTTLE_WINDOW_SECONDS}
-        self.reset_at = entry["reset"]
-        if entry["count"] >= settings.LOGIN_THROTTLE_MAX_ATTEMPTS:
-            return False
-        entry["count"] += 1
-        if not cache.set(self.key, entry, settings.LOGIN_THROTTLE_WINDOW_SECONDS):
-            # Cache write failed (DB outage): fail CLOSED. Failing open would
-            # treat every request as a fresh window and disable brute-force
-            # protection exactly when the system is already degraded. Login
-            # needs the DB anyway, so denying adds no new failure mode.
-            logger.warning("Login throttle cache write failed; denying request")
-            return False
-        return True
+        bucket = int(now // window_seconds)
+        key = f"{key_prefix}:{bucket}"
+        # Absolute epoch time the current bucket rolls over (Retry-After).
+        self.reset_at = (bucket + 1) * window_seconds
+        try:
+            if cache.add(key, 0, window_seconds):
+                count = 1  # this request opened the window
+            else:
+                count = cache.incr(key)
+        except (ValueError, DatabaseError):
+            # The slot expired/vanished between add() and incr(), or cache
+            # writes are failing (DB outage). Retry the add: if it still
+            # fails, fail CLOSED — an uncounted login/OTP endpoint is an
+            # unbounded brute-force/email-bomb surface exactly when the
+            # system is degraded.
+            logger.warning("%s throttle counter unavailable; denying request", key_prefix)
+            if not cache.add(key, 0, window_seconds):
+                return False
+            count = 1
+        return count <= max_attempts
 
     def wait(self):
         """Seconds until the window resets (surfaced in the Retry-After header)."""
@@ -94,6 +95,27 @@ class LoginThrottle(BaseThrottle):
         if reset_at is None:
             return None
         return max(0.0, reset_at - self.timer())
+
+
+class LoginThrottle(FixedWindowThrottle):
+    """Per-credential login throttle (email + IP) to stop stuffing one account.
+
+    Keying on email alone lets an attacker distribute attempts across many
+    accounts; keying on IP alone poisons a shared proxy/NAT address. Fixed
+    window of LOGIN_THROTTLE_MAX_ATTEMPTS per LOGIN_THROTTLE_WINDOW_SECONDS;
+    every attempt counts, successful logins included.
+    """
+
+    def allow_request(self, request, view):
+        ident = self.get_ident(request)
+        # request.data may be a dict (JSON) or a QueryDict (form/multipart).
+        data = request.data
+        email = (data.get("email") or "").strip().lower() if hasattr(data, "get") else ""
+        return self._allow(
+            f"login-throttle:{email}:{ident}",
+            settings.LOGIN_THROTTLE_MAX_ATTEMPTS,
+            settings.LOGIN_THROTTLE_WINDOW_SECONDS,
+        )
 
 
 class LoginIPThrottle(AnonRateThrottle):
@@ -116,7 +138,7 @@ class GoogleLoginThrottle(AnonRateThrottle):
     scope = "google_login"
 
 
-class OTPRequestThrottle(BaseThrottle):
+class OTPRequestThrottle(FixedWindowThrottle):
     """Per (email + IP) cap on OTP email requests (verify resend, reset request).
 
     Email sending costs money, so an unbounded endpoint would be an email
@@ -124,33 +146,15 @@ class OTPRequestThrottle(BaseThrottle):
     OTP_REQUEST_WINDOW_SECONDS.
     """
 
-    timer = time.time
-
     def allow_request(self, request, view):
         ident = self.get_ident(request)
         data = request.data
         email = (data.get("email") or "").strip().lower() if hasattr(data, "get") else ""
-        self.key = f"otp-request-throttle:{email}:{ident}"
-        now = self.timer()
-        entry = cache.get(self.key)
-        if not isinstance(entry, dict) or entry.get("reset", 0) <= now:
-            entry = {"count": 0, "reset": now + settings.OTP_REQUEST_WINDOW_SECONDS}
-        self.reset_at = entry["reset"]
-        if entry["count"] >= settings.OTP_REQUEST_MAX:
-            return False
-        entry["count"] += 1
-        if not cache.set(self.key, entry, settings.OTP_REQUEST_WINDOW_SECONDS):
-            # Fail closed (see LoginThrottle): an uncounted OTP endpoint is an
-            # unbounded email bomb.
-            logger.warning("OTP request throttle cache write failed; denying request")
-            return False
-        return True
-
-    def wait(self):
-        reset_at = getattr(self, "reset_at", None)
-        if reset_at is None:
-            return None
-        return max(0.0, reset_at - self.timer())
+        return self._allow(
+            f"otp-request-throttle:{email}:{ident}",
+            settings.OTP_REQUEST_MAX,
+            settings.OTP_REQUEST_WINDOW_SECONDS,
+        )
 
 
 class OTPVerifyThrottle(AnonRateThrottle):

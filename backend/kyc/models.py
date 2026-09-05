@@ -20,7 +20,7 @@ USER_ID_RANDOM_LENGTH = 8
 
 
 def generate_user_id() -> str:
-    """Return a unique, auto-generated public User ID (e.g. PHIN-8F3K2A).
+    """Return a unique, auto-generated public User ID (e.g. PHIN-A7K2M9X4).
 
     Stored in the ``username`` column (AbstractUser requires a USERNAME_FIELD
     companion); collisions are checked and retried.

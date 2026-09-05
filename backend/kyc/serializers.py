@@ -127,6 +127,14 @@ class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(
         required=False, allow_blank=True, allow_null=True, default=None
     )
+
+    def validate_email(self, value):
+        # Canonical lowercase form: login and Google linking match
+        # case-insensitively, so storing mixed case would create accounts
+        # that differ only by email case.
+        if not value:
+            return value
+        return value.strip().lower()
     # AbstractUser's name fields are blank=True, which DRF would make
     # optional; registration requires first and last names.
     first_name = serializers.CharField(max_length=150)
@@ -466,6 +474,12 @@ class AdminUserCreateSerializer(serializers.ModelSerializer):
             "role",
         )
         read_only_fields = ("id", "username")
+
+    def validate_email(self, value):
+        # Canonical lowercase form (see RegisterSerializer.validate_email).
+        if not value:
+            return value
+        return value.strip().lower()
 
     def validate_first_name(self, value):
         return validate_person_name(value, "First name")

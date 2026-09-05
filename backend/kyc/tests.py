@@ -117,6 +117,19 @@ class LightweightCacheTests(TestCase):
         self.assertTrue(cache.touch("k", timeout=120))
         self.assertFalse(cache.touch("missing", timeout=120))
 
+    def test_incr_is_atomic_integer_counter(self):
+        self.assertTrue(cache.add("n", 0, timeout=60))
+        self.assertEqual(cache.incr("n"), 1)
+        self.assertEqual(cache.incr("n", 4), 5)
+        self.assertEqual(cache.get("n"), 5)
+
+    def test_incr_missing_or_non_integer_raises(self):
+        with self.assertRaises(ValueError):
+            cache.incr("missing")
+        cache.set("s", "not-an-int", timeout=60)
+        with self.assertRaises(ValueError):
+            cache.incr("s")
+
     def test_jti_replay_guard(self):
         """The real allauth replay check must accept a first use and reject a
         replayed jti."""
@@ -403,6 +416,30 @@ class AuthTests(APITestCase):
             register_payload("spam6@kyc.local", phone="+919876500199"),
         )
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_register_unique_constraint_race_returns_400_not_500(self):
+        """A concurrent registration can pass the serializer's existence
+        checks and lose to the DB unique constraint; the API must translate
+        that into the same 400, never a 500."""
+        from django.db import IntegrityError
+
+        with mock.patch.object(
+            User.objects, "create_user", side_effect=IntegrityError("race")
+        ):
+            res = self.client.post(
+                "/api/auth/register/", register_payload("race@kyc.local")
+            )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_register_lowercases_email(self):
+        """Login/Google matching is case-insensitive, so stored emails must
+        be lowercase or two accounts can differ only by email case."""
+        res = self.client.post(
+            "/api/auth/register/",
+            register_payload("MiXeD@KYC.local", phone="+919876509991"),
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+        self.assertTrue(User.objects.filter(email="mixed@kyc.local").exists())
 
     def test_register_rejects_weak_passwords(self):
         """AUTH_PASSWORD_VALIDATORS must be enforced server-side, not just in the SPA."""
@@ -1468,6 +1505,48 @@ class ConcurrencyTests(TransactionTestCase):
         self.assertEqual(
             KYCApplication.objects.get(pk=app_id).status,
             KYCApplication.Status.SUBMITTED,
+        )
+
+    def test_concurrent_mutual_demote_keeps_one_super_admin(self):
+        """Two super admins demoting each other simultaneously must not leave
+        the deployment with zero active super admins."""
+        other = make_user("super2@kyc.local", User.Role.SUPER_ADMIN)
+
+        def demote(actor_email, target_pk, results):
+            client = APIClient()
+            res = client.post(
+                "/api/auth/token/", {"email": actor_email, "password": "Passw0rd!"}
+            )
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
+            barrier.wait()
+            results.append(
+                client.patch(
+                    f"/api/users/{target_pk}/",
+                    {"role": User.Role.APPLICANT},
+                    format="json",
+                ).status_code
+            )
+
+        barrier = threading.Barrier(2)
+        results = []
+        threads = [
+            threading.Thread(
+                target=demote, args=("super@kyc.local", other.pk, results)
+            ),
+            threading.Thread(
+                target=demote, args=("super2@kyc.local", self.super_admin.pk, results)
+            ),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # At least one demotion must have been refused, and an active super
+        # admin must remain afterwards.
+        self.assertIn(status.HTTP_400_BAD_REQUEST, results)
+        self.assertTrue(
+            User.objects.filter(role=User.Role.SUPER_ADMIN, is_active=True).exists()
         )
 
 
