@@ -284,7 +284,7 @@ LOGGING: dict[str, object] = {
     },
     "formatters": {
         "json": {
-            "()": "pythonjsonlogger.json.JsonFormatter",
+            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
             "format": "%(asctime)s %(name)s %(levelname)s %(request_id)s %(message)s",
         },
         "plain": {
