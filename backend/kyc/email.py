@@ -16,6 +16,18 @@ from django.core.mail.backends.base import BaseEmailBackend
 
 logger = logging.getLogger("kyc.email")
 
+try:
+    # Pluggable sync HTTP client (requests-backed) available since the SDK
+    # grew one; guarded so an SDK upgrade never breaks email at startup.
+    from resend.http_client_requests import RequestsClient
+except ImportError:  # pragma: no cover
+    RequestsClient = None
+
+# The Resend call runs inside the request path (registration, resend, reset).
+# A tight timeout keeps a degraded Resend API from occupying gunicorn sync
+# workers until the 30s worker timeout kills the request.
+RESEND_TIMEOUT_SECONDS = int(getattr(settings, "RESEND_TIMEOUT_SECONDS", 10))
+
 
 class ResendEmailBackend(BaseEmailBackend):
     """Send EmailMessages via ``resend.Emails.send``.
@@ -31,6 +43,14 @@ class ResendEmailBackend(BaseEmailBackend):
             # Fail loudly on misconfiguration at first send, not as a vague
             # 401 from the API.
             raise RuntimeError("RESEND_API_KEY is not configured.")
+        if RequestsClient is not None:
+            # Process-global client; RequestsClient is stateless per request
+            # (it builds a fresh requests call each time), so sharing it
+            # across threads is safe. The SDK's default is 30s — far too
+            # long to hold a sync worker for an email that should take <1s.
+            resend.default_http_client = RequestsClient(
+                timeout=RESEND_TIMEOUT_SECONDS
+            )
 
     def send_messages(self, email_messages):
         sent = 0

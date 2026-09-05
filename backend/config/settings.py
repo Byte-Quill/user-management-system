@@ -128,6 +128,17 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# Argon2id first for all new hashes (memory-hard, GPU-resistant — see
+# argon2-cffi in requirements.txt). The PBKDF2/Scrypt entries keep every
+# existing hash verifiable; Django re-hashes to the first entry
+# automatically on the next successful login.
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+    "django.contrib.auth.hashers.ScryptPasswordHasher",
+]
+
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True
@@ -198,6 +209,9 @@ SIMPLE_JWT = {
 
 # OTP emails via the Resend HTTP API (kyc/email.py).
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+# Per-call HTTP timeout in seconds; must stay well below gunicorn's 30s
+# worker timeout so a degraded Resend API cannot occupy sync workers.
+RESEND_TIMEOUT_SECONDS = int(os.environ.get("RESEND_TIMEOUT_SECONDS", "10"))
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",
     "django.core.mail.backends.console.EmailBackend"

@@ -27,3 +27,7 @@ phonenumbers==9.0.37
 # providers.
 disposable-email-domains==0.0.237
 # Caching/throttling uses Django's database cache backend (Postgres-backed).
+# Argon2id for new password hashes (memory-hard, GPU-resistant); the PBKDF2
+# entries in settings.PASSWORD_HASHERS keep existing hashes verifiable and
+# are upgraded to Argon2 transparently on the next successful login.
+argon2-cffi==25.1.0

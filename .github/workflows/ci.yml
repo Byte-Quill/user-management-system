@@ -34,9 +34,13 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt ruff
+          pip install -r requirements.txt ruff pip-audit
       - name: Lint (ruff)
-        run: ruff check .
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Audit dependencies (pip-audit)
+        run: pip-audit --strict -r requirements.txt
       - name: Django system check
         run: python manage.py check
         env:
@@ -62,5 +66,7 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Test (bun test)
         run: bun test
+      - name: Audit dependencies (bun audit)
+        run: bun audit --omit=dev --audit-level=high
       - name: Type-check + build
         run: bun run build

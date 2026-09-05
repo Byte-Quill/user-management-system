@@ -5,6 +5,7 @@ import uuid
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import UserManager as DjangoUserManager
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.core.signing import TimestampSigner
@@ -12,6 +13,7 @@ from django.db import models, transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 # Unambiguous alphabet (no 0/O, 1/I/L) so IDs stay readable when spoken.
 USER_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -142,6 +144,25 @@ class User(AbstractUser):
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
+
+    class Meta:
+        # Replicate AbstractUser's verbose names (declaring Meta on the
+        # subclass does not inherit the parent's) plus trigram indexes for
+        # the users-list icontains search (see migration 0014).
+        verbose_name = _("user")
+        verbose_name_plural = _("users")
+        indexes = [
+            GinIndex(
+                name="kyc_user_email_trgm_idx",
+                fields=["email"],
+                opclasses=["gin_trgm_ops"],
+            ),
+            GinIndex(
+                name="kyc_user_uname_trgm_idx",
+                fields=["username"],
+                opclasses=["gin_trgm_ops"],
+            ),
+        ]
 
     def __str__(self):
         identifier = self.email or self.phone or self.username
@@ -434,6 +455,13 @@ class AuditLog(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        # Paginated per-application history: /applications/{id}/audit/.
+        indexes = [
+            models.Index(
+                fields=["application", "-created_at"],
+                name="kyc_audit_app_created_idx",
+            ),
+        ]
 
     def __str__(self):
         # application_id is the FK column name; Pylance only knows the `application` field.

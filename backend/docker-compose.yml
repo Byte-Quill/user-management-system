@@ -67,7 +67,9 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    mem_limit: 512m
+    # 4 gunicorn workers + Argon2 peaks (~64 MiB per concurrent login hash):
+    # sized for the workers themselves plus short hashing bursts.
+    mem_limit: 1g
 
   web:
     build:
