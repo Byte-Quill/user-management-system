@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Page } from "../types";
+import type { Page } from "@/types";
 
 export function usePaginatedList<T>(
   fetcher: (page: number) => Promise<Page<T>>,

@@ -53,6 +53,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # `sites` is required by allauth.socialaccount (SocialApp.sites M2M).
     "django.contrib.sites",
+    # Required by GinIndex/gin_trgm_ops on User (postgres.E005 system check).
+    "django.contrib.postgres",
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
@@ -77,7 +79,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django.middleware.csp.ContentSecurityPolicyMiddleware",
-    "kyc.middleware.RequestIDMiddleware",
+    "kyc.common.middleware.RequestIDMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -116,7 +118,7 @@ DATABASES = {
 # Postgres-backed cache shared across workers; no extra service needed.
 CACHES = {
     "default": {
-        "BACKEND": "kyc.cache.LightweightDatabaseCache",
+        "BACKEND": "kyc.common.cache.LightweightDatabaseCache",
         "LOCATION": "kyc_cache",
     }
 }
@@ -150,7 +152,7 @@ AUTH_USER_MODEL = "kyc.User"
 
 # Lets the login identifier resolve against both email and phone columns.
 AUTHENTICATION_BACKENDS = [
-    "kyc.backends.EmailOrPhoneBackend",
+    "kyc.common.backends.EmailOrPhoneBackend",
     "django.contrib.auth.backends.ModelBackend",
 ]
 
@@ -181,7 +183,7 @@ REST_FRAMEWORK = {
         "review": "60/hour",
     },
     # Adds a Retry-After header to 429 responses (RFC 6585).
-    "EXCEPTION_HANDLER": "kyc.access.throttled_exception_handler",
+    "EXCEPTION_HANDLER": "kyc.common.throttles.throttled_exception_handler",
     # Trusted proxy hops; raise when behind an extra load balancer.
     "NUM_PROXIES": int(os.environ.get("DJANGO_NUM_PROXIES", "1")),
 }
@@ -216,7 +218,7 @@ EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",
     "django.core.mail.backends.console.EmailBackend"
     if DEBUG
-    else "kyc.email.ResendEmailBackend",
+    else "kyc.services.email.ResendEmailBackend",
 )
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Login Portal <onboarding@resend.dev>")
 
@@ -277,7 +279,7 @@ LOGGING: dict[str, object] = {
     "disable_existing_loggers": False,
     "filters": {
         "request_id": {
-            "()": "kyc.middleware.RequestIDFilter",
+            "()": "kyc.common.middleware.RequestIDFilter",
         },
     },
     "formatters": {

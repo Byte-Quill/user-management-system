@@ -1,24 +1,23 @@
+"""API route table. Views are grouped per domain in ``kyc/views/``."""
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .auth_views import (
-    CookieTokenObtainPairView,
-    CookieTokenRefreshView,
-    GoogleAuthView,
-    LogoutView,
-    PasswordResetConfirmView,
-    PasswordResetRequestView,
-    ResendVerificationView,
-    VerifyEmailView,
-)
 from .views import (
     AnalyticsView,
+    CookieTokenObtainPairView,
+    CookieTokenRefreshView,
     DocumentDownloadView,
+    GoogleAuthView,
     KYCApplicationViewSet,
+    LogoutView,
     MeView,
+    PasswordResetConfirmView,
+    PasswordResetRequestView,
     RegisterView,
+    ResendVerificationView,
     ReviewQueueView,
     UserManagementViewSet,
+    VerifyEmailView,
 )
 
 router = DefaultRouter()

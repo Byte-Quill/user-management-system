@@ -1,0 +1,85 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+
+import * as api from "@/lib/api";
+import type { User } from "@/types";
+
+interface AuthContextValue {
+  user: User | null;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const initializeAuth = async () => {
+      try {
+        // Access tokens live in memory, so a reload loses them. Ask the
+        // backend for a fresh one via the HttpOnly refresh cookie.
+        const refreshed = await api.refreshAccess();
+        if (refreshed) {
+          setUser(await api.fetchMe());
+        }
+      } catch {
+        api.clearTokens();
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void initializeAuth();
+  }, []);
+
+  // Shared by password and Google login: store the access token, load the
+  // profile, and roll back to logged-out if the profile fetch fails.
+  const startSession = useCallback(async (tokens: { access: string }) => {
+    api.setTokens(tokens.access);
+    try {
+      setUser(await api.fetchMe());
+    } catch (err) {
+      // Token issued but profile fetch failed: don't leave a half-session.
+      api.clearTokens();
+      throw err;
+    }
+  }, []);
+
+  const login = useCallback(
+    async (email: string, password: string) => startSession(await api.login(email, password)),
+    [startSession]
+  );
+
+  const loginWithGoogle = useCallback(
+    async (credential: string) => startSession(await api.googleLogin(credential)),
+    [startSession]
+  );
+
+  const logout = useCallback(() => {
+    // Best-effort server-side blacklist + cookie clear; always clear locally.
+    void api.logout().catch((err) => {
+      console.error("Logout blacklist failed:", err);
+    });
+    api.clearTokens();
+    setUser(null);
+  }, []);
+
+  const value = useMemo(
+    () => ({ user, loading, login, loginWithGoogle, logout }),
+    [user, loading, login, loginWithGoogle, logout]
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  return ctx;
+}

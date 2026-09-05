@@ -1,0 +1,502 @@
+"""JWT auth views that store the refresh token in an HttpOnly cookie.
+
+Access tokens stay in memory; the long-lived refresh token lives in an
+HttpOnly, SameSite-protected cookie that JavaScript cannot read.
+
+Endpoints that authenticate via the cookie validate the Origin header, so a
+cross-site request that sends the cookie still fails the Origin check.
+"""
+import logging
+import re
+
+import requests
+from allauth.account.models import EmailAddress
+from allauth.socialaccount.adapter import get_adapter as get_socialaccount_adapter
+from allauth.socialaccount.models import SocialAccount
+from allauth.socialaccount.providers.oauth2.client import OAuth2Error
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
+from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.settings import api_settings as jwt_settings
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.utils import get_md5_hash_password
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
+from kyc.common.throttles import (
+    GoogleLoginThrottle,
+    LoginIPThrottle,
+    LoginThrottle,
+    OTPRequestThrottle,
+    OTPVerifyThrottle,
+    RegisterThrottle,
+)
+from kyc.models import EmailOTP, generate_user_id
+from kyc.serializers import EmailTokenObtainPairSerializer, RegisterSerializer
+from kyc.services.otp import issue_otp, request_otp, verify_otp
+
+logger = logging.getLogger("kyc.auth")
+
+User = get_user_model()
+
+COOKIE_NAME = getattr(settings, "JWT_AUTH_COOKIE", "refresh_token")
+
+
+def _cookie_kwargs() -> dict:
+    return {
+        "httponly": True,
+        "secure": getattr(settings, "JWT_AUTH_COOKIE_SECURE", not settings.DEBUG),
+        "samesite": getattr(settings, "JWT_AUTH_COOKIE_SAMESITE", "Lax"),
+        "path": getattr(settings, "JWT_AUTH_COOKIE_PATH", "/"),
+        "max_age": getattr(settings, "JWT_AUTH_COOKIE_MAX_AGE", None),
+    }
+
+
+def _set_refresh_cookie(response: Response, refresh: str) -> None:
+    response.set_cookie(COOKIE_NAME, refresh, **_cookie_kwargs())
+
+
+def _delete_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(COOKIE_NAME, path=getattr(settings, "JWT_AUTH_COOKIE_PATH", "/"))
+
+
+def _reject_cross_origin(request, action: str) -> Response | None:
+    """403 for disallowed Origins on cookie-setting/-sending endpoints, else None.
+
+    Login/refresh/logout all SET or DELETE the refresh cookie, so a
+    cross-site request that carries the cookie must fail the Origin check
+    (login CSRF / forced logout).
+    """
+    if origin_allowed(request):
+        return None
+    logger.warning("%s rejected: disallowed Origin %s", action, request.headers.get("Origin"))
+    return Response(
+        {"detail": f"Cross-origin {action} is not allowed."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def origin_allowed(request) -> bool:
+    """Return True when the request Origin (if any) is safe for cookie auth."""
+    origin = request.headers.get("Origin")
+    if not origin:
+        # Non-browser client (curl, mobile): not a CSRF vector.
+        return True
+    # Compare against scheme + host (incl. port) rather than the Host header:
+    # browsers include non-standard ports in Origin while a proxy may forward
+    # the Host header without one, which would reject same-origin refreshes.
+    if origin == f"{request.scheme}://{request.get_host()}":
+        return True
+    allowed = set(getattr(settings, "CORS_ALLOWED_ORIGINS", []))
+    if origin in allowed:
+        return True
+    for pattern in getattr(settings, "CORS_ALLOWED_ORIGIN_REGEXES", []):
+        if re.match(pattern, origin):
+            return True
+    return False
+
+
+class CookieTokenObtainPairView(TokenObtainPairView):
+    """Login: return the access token in the body, refresh token in a cookie."""
+
+    serializer_class = EmailTokenObtainPairSerializer
+    # Per-credential window (email + IP) plus a per-IP cap.
+    throttle_classes = [LoginThrottle, LoginIPThrottle]
+
+    def post(self, request, *args, **kwargs):
+        # Login CSRF: a successful login SETS the refresh cookie, so an
+        # attacker's auto-submitting form could log a victim into an
+        # attacker-controlled account without an Origin check.
+        if (rejected := _reject_cross_origin(request, "login")) is not None:
+            return rejected
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == status.HTTP_200_OK:
+            refresh = response.data.pop("refresh", None)
+            if refresh:
+                _set_refresh_cookie(response, refresh)
+        return response
+
+
+class CookieTokenRefreshView(TokenRefreshView):
+    """Refresh: read the refresh token from the cookie (body as fallback)."""
+
+    permission_classes = (AllowAny,)
+
+    def post(self, request, *args, **kwargs):
+        if (rejected := _reject_cross_origin(request, "refresh")) is not None:
+            return rejected
+        # Fall back to the body token when the cookie is absent (API clients).
+        refresh = request.COOKIES.get(COOKIE_NAME) or request.data.get("refresh")
+        if not refresh:
+            # Treat as unauthenticated, not a validation error.
+            return Response(
+                {"detail": "No refresh token provided."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if request.COOKIES.get(COOKIE_NAME):
+            data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
+            data["refresh"] = request.COOKIES[COOKIE_NAME]
+            request._full_data = data
+        # CHECK_REVOKE_TOKEN only guards access-token authentication; the
+        # refresh endpoint must enforce the same check itself, or a stolen
+        # refresh token would survive a password reset for its full lifetime.
+        if jwt_settings.CHECK_REVOKE_TOKEN and request.data.get("refresh"):
+            try:
+                token = RefreshToken(request.data["refresh"])
+            except TokenError:
+                token = None  # invalid/expired: let super() produce the error
+            if token is not None:
+                user = User.objects.filter(pk=token["user_id"]).first()
+                if (
+                    user is None
+                    or token.get(jwt_settings.REVOKE_TOKEN_CLAIM)
+                    != get_md5_hash_password(user.password)
+                ):
+                    logger.warning(
+                        "Refresh rejected after password change for user %s",
+                        token["user_id"],
+                    )
+                    response = Response(
+                        {"detail": "Token is invalid or expired"},
+                        status=status.HTTP_401_UNAUTHORIZED,
+                    )
+                    _delete_refresh_cookie(response)
+                    return response
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == status.HTTP_200_OK:
+            new_refresh = response.data.pop("refresh", None)
+            if new_refresh:
+                _set_refresh_cookie(response, new_refresh)
+        elif response.status_code == status.HTTP_401_UNAUTHORIZED:
+            # Rotated/expired token: clear the stale cookie.
+            _delete_refresh_cookie(response)
+        return response
+
+
+class LogoutView(APIView):
+    """Blacklist the refresh token and clear the auth cookie."""
+
+    permission_classes = (AllowAny,)
+
+    def post(self, request):
+        # Logout CSRF: a cross-site POST would send the victim's cookie and
+        # blacklist their refresh token (forced logout).
+        if (rejected := _reject_cross_origin(request, "logout")) is not None:
+            return rejected
+        refresh = request.COOKIES.get(COOKIE_NAME) or request.data.get("refresh")
+        if refresh:
+            try:
+                RefreshToken(refresh).blacklist()
+            except TokenError as exc:
+                logger.info("Logout with invalid/expired token: %s", exc)
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        _delete_refresh_cookie(response)
+        return response
+
+
+def _resolve_google_user(request, sociallogin):
+    """Return the local user for a verified Google login, creating/linking as needed.
+
+    Resolution order: existing SocialAccount -> local user with the same
+    Google-verified email -> new applicant. Callers retry on IntegrityError to
+    absorb create/link races.
+    """
+    provider = sociallogin.account.provider
+    uid = sociallogin.account.uid
+
+    existing = (
+        SocialAccount.objects.filter(provider=provider, uid=uid)
+        .select_related("user")
+        .first()
+    )
+    if existing:
+        return existing.user
+
+    email = sociallogin.user.email
+    user = User.objects.filter(email__iexact=email).first()
+    if user:
+        other_google = SocialAccount.objects.filter(user=user, provider=provider).exists()
+        if other_google:
+            raise DjangoValidationError(
+                "This account is already linked to a different Google identity."
+            )
+        with transaction.atomic():
+            SocialAccount.objects.create(
+                user=user, provider=provider, uid=uid,
+                extra_data=sociallogin.account.extra_data,
+            )
+            # Google proved ownership of the email — satisfies the
+            # email-verification gate even without an OTP.
+            if not user.email_verified:
+                user.email_verified = True
+                user.save(update_fields=["email_verified"])
+        return user
+
+    # New applicant: auto-generate the public User ID (users never pick one).
+    with transaction.atomic():
+        user = User.objects.create_user(
+            email=email,
+            username=generate_user_id(),
+            password=None,  # unusable: Google is the credential
+            first_name=sociallogin.user.first_name,
+            last_name=sociallogin.user.last_name,
+            role=User.Role.APPLICANT,
+            # Google proved ownership of the email — verified by definition.
+            email_verified=True,
+        )
+        SocialAccount.objects.create(
+            user=user, provider=provider, uid=uid,
+            extra_data=sociallogin.account.extra_data,
+        )
+        # Record the Google-verified address so allauth's email bookkeeping
+        # (and future email-based lookups) sees it as verified + primary.
+        has_primary = EmailAddress.objects.filter(user=user, primary=True).exists()
+        EmailAddress.objects.get_or_create(
+            user=user, email=email.lower(),
+            defaults={"verified": True, "primary": not has_primary},
+        )
+    return user
+
+
+class GoogleAuthView(APIView):
+    """Google Sign-In: exchange a Google ID token for our JWT session.
+
+    The SPA's Google button posts the OIDC ``credential`` (ID token). allauth's
+    Google provider verifies it (signature against Google's public keys, issuer,
+    audience = GOOGLE_CLIENT_ID, expiry, and jti replay via the cache), then we
+    resolve or provision the local user and issue the same SimpleJWT pair used
+    by password login: access token in the body, refresh token in the HttpOnly
+    cookie. No Django session is created; the session model is unchanged.
+    """
+
+    permission_classes = (AllowAny,)
+    throttle_classes = [GoogleLoginThrottle]
+
+    def post(self, request, *args, **kwargs):
+        # Login CSRF: this endpoint SETS the refresh cookie, so an attacker's
+        # page could silently log a victim into an attacker-controlled account.
+        if (rejected := _reject_cross_origin(request, "login")) is not None:
+            return rejected
+
+        if not getattr(settings, "GOOGLE_CLIENT_ID", ""):
+            logger.error("Google login attempted but GOOGLE_CLIENT_ID is not configured")
+            return Response(
+                {"detail": "Google Sign-In is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        credential = request.data.get("credential")
+        if not credential or not isinstance(credential, str):
+            return Response(
+                {"detail": "Missing Google credential."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            provider = get_socialaccount_adapter().get_provider(request, "google")
+            sociallogin = provider.verify_token(request, {"id_token": credential})
+        except (OAuth2Error, DjangoValidationError, requests.RequestException, ValueError) as exc:
+            logger.info("Google ID token verification failed: %s", exc)
+            return Response(
+                {"detail": "Invalid Google credential."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Require a Google-verified email before trusting it for linking.
+        verified = [ea for ea in sociallogin.email_addresses if ea.verified]
+        email = sociallogin.user.email
+        if not email or not any(ea.email.lower() == email.lower() for ea in verified):
+            return Response(
+                {"detail": "Google account has no verified email."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        user = None
+        for _ in range(2):
+            try:
+                with transaction.atomic():
+                    user = _resolve_google_user(request, sociallogin)
+                break
+            except IntegrityError:
+                # Concurrent first-login/link race: retry the lookup.
+                continue
+            except DjangoValidationError as exc:
+                return Response({"detail": exc.messages[0]}, status=status.HTTP_409_CONFLICT)
+        if user is None:
+            return Response(
+                {"detail": "Could not sign in with Google."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if not user.is_active:
+            return Response(
+                {"detail": "This account is disabled."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        refresh = RefreshToken.for_user(user)
+        response = Response({"access": str(refresh.access_token)})
+        _set_refresh_cookie(response, str(refresh))
+        return response
+
+
+# --- Email OTP: signup verification + password reset ------------------------
+#
+# Enumeration safety: the request/resend endpoints ALWAYS return the same 200
+# regardless of whether the email exists — otherwise they would be a free
+# account-existence oracle. The verify/confirm endpoints only reveal whether
+# a *submitted code* matched, which leaks nothing about other accounts.
+
+
+def _find_user_by_email(email: str):
+    email = (email or "").strip().lower()
+    if not email:
+        return None
+    return User.objects.filter(email__iexact=email).first()
+
+
+class VerifyEmailView(APIView):
+    """Verify the signup OTP and unlock the account for password login."""
+
+    permission_classes = (AllowAny,)
+    throttle_classes = [OTPVerifyThrottle]
+
+    def post(self, request):
+        email = (request.data.get("email") or "").strip()
+        code = (request.data.get("code") or "").strip()
+        if not email or not code:
+            return Response(
+                {"detail": "Email and code are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = _find_user_by_email(email)
+        if user is None or not verify_otp(
+            user, EmailOTP.Purpose.VERIFY_EMAIL, code
+        ):
+            return Response(
+                {"detail": "Invalid or expired code."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not user.email_verified:
+            user.email_verified = True
+            user.save(update_fields=["email_verified"])
+        return Response({"detail": "Email verified. You can sign in now."})
+
+
+class ResendVerificationView(APIView):
+    """Resend the signup OTP (generic 200; cooldown enforced server-side)."""
+
+    permission_classes = (AllowAny,)
+    throttle_classes = [OTPRequestThrottle]
+
+    def post(self, request):
+        user = _find_user_by_email(request.data.get("email"))
+        if user is not None and not user.email_verified:
+            try:
+                request_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
+            except Exception:
+                # An email outage must not surface as a 500 (and must not
+                # change the response shape — enumeration safety). The user
+                # can simply retry; the cooldown still bounds sending.
+                logger.exception("Verification resend failed for user %s", user.pk)
+        return Response({"detail": "If the account needs verification, a code was sent."})
+
+
+class PasswordResetRequestView(APIView):
+    """Send a password-reset OTP (generic 200; works for Google-only users)."""
+
+    permission_classes = (AllowAny,)
+    throttle_classes = [OTPRequestThrottle]
+
+    def post(self, request):
+        user = _find_user_by_email(request.data.get("email"))
+        if user is not None:
+            try:
+                request_otp(user, EmailOTP.Purpose.RESET_PASSWORD)
+            except Exception:
+                # Same policy as resend: log, keep the generic 200.
+                logger.exception("Password-reset OTP send failed for user %s", user.pk)
+        return Response(
+            {"detail": "If an account exists for that email, a reset code was sent."}
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    """Consume the reset OTP and set a new password.
+
+    The OTP was delivered to the account's inbox, which proves ownership of
+    the email — so this also marks the email verified (unblocks unverified
+    signups whose only recovery path is the reset flow).
+    """
+
+    permission_classes = (AllowAny,)
+    throttle_classes = [OTPVerifyThrottle]
+
+    def post(self, request):
+        email = (request.data.get("email") or "").strip()
+        code = (request.data.get("code") or "").strip()
+        password = request.data.get("new_password") or ""
+        if not email or not code or not password:
+            return Response(
+                {"detail": "Email, code and new password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = _find_user_by_email(email)
+        if user is None or not verify_otp(
+            user, EmailOTP.Purpose.RESET_PASSWORD, code
+        ):
+            return Response(
+                {"detail": "Invalid or expired code."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            validate_password(password, user=user)
+        except DjangoValidationError as exc:
+            return Response(
+                {"new_password": exc.messages}, status=status.HTTP_400_BAD_REQUEST
+            )
+        user.set_password(password)
+        if not user.email_verified:
+            user.email_verified = True
+        user.save(update_fields=["password", "email_verified"])
+        return Response({"detail": "Password updated. You can sign in now."})
+
+
+# --- Account self-registration ----------------------------------------------
+
+
+class RegisterView(generics.CreateAPIView):
+    serializer_class = RegisterSerializer
+    permission_classes = (AllowAny,)
+    throttle_classes = (RegisterThrottle,)
+
+    def perform_create(self, serializer):
+        # Create the user, then issue the OTP — deliberately outside a
+        # transaction so the external HTTP send never holds a DB connection.
+        try:
+            user = serializer.save()
+        except IntegrityError as exc:
+            # Two concurrent registrations can pass the serializer's
+            # existence checks and then lose to the DB unique constraints
+            # (email/phone, or the generated user ID). Translate the race
+            # into the same 400 the pre-check would have returned.
+            raise ValidationError(
+                "An account with these details already exists."
+            ) from exc
+        # Phone-only accounts have no email to verify, so skip the OTP.
+        if not user.email:
+            return
+        try:
+            issue_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
+        except Exception:
+            # An email outage must not turn signup into a 500 (the client
+            # would retry into "email already registered"); the account stays
+            # unverified and recovers via the resend endpoint.
+            logger.exception("Failed to send verification email to %s", user.email)

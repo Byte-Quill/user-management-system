@@ -34,7 +34,7 @@ system as it stands today (all original findings resolved or re-verified).
 With HTTPS deploys (`SameSite=None` + `Secure`), a cross-site form POST could
 have logged a victim into an attacker account, causing KYC PII to be uploaded
 into the attacker's account. **Fixed:** the login view now calls
-`origin_allowed()` before issuing tokens (`kyc/auth_views.py`), matching
+`origin_allowed()` before issuing tokens (`kyc/views/auth.py`), matching
 refresh, logout, and Google Sign-In.
 
 ### FIXED — Logout CSRF (originally LOW)

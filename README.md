@@ -10,9 +10,9 @@ a **100% free and open-source stack** — no paid services, no vendor lock-in.
   time-limited signed download URL
 - **Cache / rate limiting:** Django's database cache (Postgres-backed) — no
   Redis service required. Uses an optimized backend
-  (`kyc.cache.LightweightDatabaseCache`) that replaces the stock backend's
-  per-write full-table scan with a single indexed upsert and periodically
-  sweeps expired rows.
+  (`kyc.common.cache.LightweightDatabaseCache`) that replaces the stock
+  backend's per-write full-table scan with a single indexed upsert and
+  periodically sweeps expired rows.
 - **Deployment:** docker-compose (Postgres + backend + nginx) or any Docker host
 
 ---
@@ -54,23 +54,41 @@ viewer's session.
 user-management-system/
 ├── backend/                    # Django project
 │   ├── config/                 # settings, urls, wsgi
-│   ├── kyc/                    # main app
-│   │   ├── models.py           # User, KYCApplication, Document, AuditLog,
-│   │   │                       # EmailOTP, audit logging + signed download tokens
-│   │   ├── views.py            # applications, documents, review, audit
-│   │   ├── auth_views.py       # cookie-based JWT login/refresh/logout,
-│   │   │                       # Google Sign-In, email OTP endpoints
-│   │   ├── serializers.py      # DRF serializers (signed URLs for documents)
-│   │   ├── backends.py         # email-or-phone authentication backend
-│   │   ├── otp.py              # OTP issue/verify service (HMAC-keyed codes)
-│   │   ├── email.py            # Resend email backend
-│   │   ├── email_domains.py    # disposable/temp-mail domain blocklist
-│   │   ├── access.py           # role/ownership permissions + throttles
+│   ├── kyc/                    # main app (layered, domain-oriented)
+│   │   ├── common/             # cross-cutting infrastructure
+│   │   │   ├── permissions.py  # role/ownership permissions (IsReviewer...)
+│   │   │   ├── throttles.py    # atomic fixed-window + scoped rate limits
+│   │   │   ├── middleware.py   # request-ID middleware + log filter
+│   │   │   ├── cache.py        # Postgres-backed cache backend
+│   │   │   ├── backends.py     # email-or-phone authentication backend
+│   │   │   ├── email_domains.py# disposable/temp-mail domain blocklist
+│   │   │   ├── tokens.py       # signed download-token helpers
+│   │   │   ├── validators.py   # magic-byte upload content sniffing
+│   │   │   └── health.py       # /healthz and /readyz probes
+│   │   ├── models/             # one module per domain (re-exported via __init__)
+│   │   │   ├── user.py         # custom User + public-ID generation
+│   │   │   ├── application.py  # KYCApplication statuses + review workflow
+│   │   │   ├── document.py     # Document + file-cleanup signal
+│   │   │   ├── audit.py        # AuditLog + log_action
+│   │   │   ├── email_log.py    # EmailLog (analytics)
+│   │   │   └── email_otp.py    # EmailOTP (HMAC-keyed codes)
+│   │   ├── serializers/        # fields.py (shared validators) + auth/users/
+│   │   │                       # applications modules (re-exported via __init__)
+│   │   ├── services/           # business logic
+│   │   │   ├── otp.py          # OTP issue/request/verify service
+│   │   │   └── email.py        # Resend email backend
+│   │   ├── views/              # one module per endpoint domain
+│   │   │   ├── auth.py         # cookie JWT login/refresh/logout, Google
+│   │   │   │                   # Sign-In, registration, email-OTP endpoints
+│   │   │   ├── applications.py # CRUD, submit, documents, review, audit,
+│   │   │   │                   # signed document download
+│   │   │   ├── review.py       # reviewer queue
+│   │   │   ├── users.py        # own profile + SUPER_ADMIN management
+│   │   │   └── analytics.py    # CEO KPIs / pipeline / email activity
+│   │   ├── tests/              # test suite, one module per domain
+│   │   │   ├── utils.py        # shared fixtures/helpers
+│   │   │   └── test_*.py       # auth, applications, users, analytics, ...
 │   │   ├── admin.py            # hardened Django admin
-│   │   ├── middleware.py       # request-ID middleware
-│   │   ├── cache.py            # Postgres-backed cache backend
-│   │   ├── health.py           # /healthz and /readyz probes
-│   │   ├── tests.py            # test suite
 │   │   ├── urls.py             # /api/ routes
 │   │   ├── management/commands/
 │   │   │   └── seed_demo.py            # demo users + sample data
@@ -84,24 +102,33 @@ user-management-system/
 │   ├── pyproject.toml          # ruff lint/format config
 │   ├── entrypoint.sh
 │   └── requirements.txt
-├── frontend/                   # React SPA
+├── frontend/                   # React SPA (feature-based modules, "@/\" alias)
 │   ├── src/
-│   │   ├── api.ts              # fetch wrapper, in-memory access token,
-│   │   │                       # single-flight cookie refresh
-│   │   ├── auth.tsx            # auth context
-│   │   ├── types.ts            # types matching the backend API
-│   │   ├── validation.ts       # client-side validators mirroring backend rules
-│   │   ├── countries.ts        # ISO 3166-1 country list + flag emoji helper
-│   │   ├── disposableEmails.ts # disposable-domain blocklist (generated,
+│   │   ├── main.tsx            # entry point
+│   │   ├── app/                # App shell: config, guards, router
+│   │   ├── lib/
+│   │   │   ├── api/            # client.ts (fetch wrapper, in-memory access
+│   │   │   │                   # token, single-flight cookie refresh) +
+│   │   │   │                   # per-domain endpoint modules (auth,
+│   │   │   │                   # applications, users, analytics)
+│   │   │   └── validation.ts   # client-side validators mirroring backend rules
+│   │   ├── types/              # API types split per domain (user, application,
+│   │   │                       # analytics, common)
+│   │   ├── features/           # vertical slices, each owning its pages/components
+│   │   │   ├── auth/           # Login, Register, VerifyEmail, ForgotPassword,
+│   │   │   │                   # GoogleSignInButton, useAuth
+│   │   │   ├── applications/   # ApplicationForm/Detail, ApplicationSections
+│   │   │   ├── review/         # ReviewQueue/Detail
+│   │   │   ├── users/          # user management console
+│   │   │   ├── analytics/      # CEO analytics
+│   │   │   └── dashboard/      # applicant dashboard
+│   │   ├── components/         # ui/ (Field, Pagination, StatusBadge),
+│   │   │                       # form/ (CountrySelect, DateOfBirthInput,
+│   │   │                       # PhoneInputField), layout/ (Layout)
+│   │   ├── data/               # countries.ts (ISO 3166-1 + flags),
+│   │   │                       # disposableEmails.ts (generated blocklist,
 │   │   │                       # mirrors backend/scripts/gen_disposable_emails.py)
-│   │   ├── components/         # Layout, Field, Pagination, StatusBadge,
-│   │   │                       # ApplicationSections (details/docs/audit),
-│   │   │                       # CountrySelect, DateOfBirthInput,
-│   │   │                       # PhoneInputField, GoogleSignInButton
-│   │   ├── hooks/              # usePaginatedList
-│   │   └── pages/              # Dashboard, ApplicationForm/Detail,
-│   │                           # ReviewQueue/Detail, Login, Register,
-│   │                           # VerifyEmail, ForgotPassword
+│   │   └── hooks/              # usePaginatedList
 │   ├── Dockerfile              # nginx static image (also proxies /api)
 │   ├── nginx.conf
 │   └── package.json
@@ -209,13 +236,13 @@ Origin-checked (login-CSRF) and per-IP throttled like password login.
   through the OTP gate below.
 - **Disposable/temp-mail domains are rejected** at registration using the
   [`disposable-email-domains`](https://pypi.org/project/disposable-email-domains/)
-  blocklist (`kyc/email_domains.py`). The frontend mirrors the same list in
-  `src/disposableEmails.ts`, regenerated from the same package by
+  blocklist (`kyc/common/email_domains.py`). The frontend mirrors the same list in
+  `src/data/disposableEmails.ts`, regenerated from the same package by
   `backend/scripts/gen_disposable_emails.py`.
 - **Phone numbers are validated and normalized with libphonenumber**
   (`phonenumbers`) to canonical E.164 (`+digits`), with `IN` as the fallback
   region for national-format input. Login accepts legacy digits-only numbers
-  from before this change (`kyc/backends.py`).
+  from before this change (`kyc/common/backends.py`).
 - Optional profile details (date of birth, nationality, address) can be
   provided at signup and prefill the KYC application form.
 
