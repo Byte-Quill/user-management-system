@@ -1,10 +1,10 @@
 """Django settings for the KYC-V3 backend."""
 import os
 import sys
+import urllib.parse
 from datetime import timedelta
 from pathlib import Path
 
-import dj_database_url
 from django.utils.csp import CSP
 from dotenv import load_dotenv
 
@@ -103,17 +103,35 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 
 # PostgreSQL only (any instance).
-if os.environ.get("DATABASE_URL", "").startswith("sqlite"):
+# Parse DATABASE_URL with stdlib only (no dj-database-url dependency).
+def _parse_database_url(url: str) -> dict:
+    """Parse a postgres:// URL into a Django database config dict.
+
+    Replicates the conn_max_age and conn_health_checks behaviour that
+    dj-database-url provided, using only the stdlib urllib.parse.
+    """
+    parsed = urllib.parse.urlparse(url)
+    path = parsed.path.lstrip("/")
+    if "?" in path:
+        path = path.split("?")[0]
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": path,
+        "USER": parsed.username or "",
+        "PASSWORD": parsed.password or "",
+        "HOST": parsed.hostname or "",
+        "PORT": parsed.port or "",
+        "CONN_MAX_AGE": 600,
+        "CONN_HEALTH_CHECKS": True,
+    }
+
+
+if not os.environ.get("DATABASE_URL", ""):
     raise RuntimeError(
-        "SQLite is not supported. Point DATABASE_URL at PostgreSQL, e.g. "
+        "DATABASE_URL is required. Point it at PostgreSQL, e.g. "
         "postgres://kyc:***@localhost:5432/kyc"
     )
-DATABASES = {
-    "default": dj_database_url.config(
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
-}
+DATABASES = {"default": _parse_database_url(os.environ["DATABASE_URL"])}
 
 # Postgres-backed cache shared across workers; no extra service needed.
 CACHES = {
@@ -209,17 +227,22 @@ SIMPLE_JWT = {
     "CHECK_REVOKE_TOKEN": True,
 }
 
-# OTP emails via the Resend HTTP API (kyc/email.py).
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-# Per-call HTTP timeout in seconds; must stay well below gunicorn's 30s
-# worker timeout so a degraded Resend API cannot occupy sync workers.
-RESEND_TIMEOUT_SECONDS = int(os.environ.get("RESEND_TIMEOUT_SECONDS", "10"))
+# Transactional email (OTP codes) via Django's built-in SMTP backend.
+# Resend is the default provider; SMTP settings work out of the box:
+#   smtp.resend.com:587, user "resend", password = API key (re_...).
+# In DEBUG, emails are written to the console instead of sent.
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",
     "django.core.mail.backends.console.EmailBackend"
     if DEBUG
-    else "kyc.services.email.ResendEmailBackend",
+    else "django.core.mail.backends.smtp.EmailBackend",
 )
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.resend.com")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").lower() == "true"
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "resend")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Login Portal <onboarding@resend.dev>")
 
 # allauth verifies the Google ID token; SimpleJWT still issues the session.
@@ -284,7 +307,7 @@ LOGGING: dict[str, object] = {
     },
     "formatters": {
         "json": {
-            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+            "()": "kyc.common.logging.JSONFormatter",
             "format": "%(asctime)s %(name)s %(levelname)s %(request_id)s %(message)s",
         },
         "plain": {

@@ -267,10 +267,13 @@ and issuing a new code invalidates the previous one. Request/resend
 endpoints always return a generic 200 (no account enumeration) and are
 throttled per email+IP (5/hour) with a 60-second resend cooldown.
 
-Set `RESEND_API_KEY` and a verified `DEFAULT_FROM_EMAIL` in production. Note:
-with an *unverified* domain Resend only delivers from `onboarding@resend.dev`
-to the account owner's own inbox — verify a domain first. Accepted risk: a
-password reset does not revoke already-issued JWTs (access 1h / refresh 7d).
+Transaction email (signup/reset OTPs) uses Django's built-in SMTP backend.
+Defaults to Resend (`smtp.resend.com:587`, user `resend`, password = API key);
+override `EMAIL_HOST`/`EMAIL_PORT` to use another provider. Set
+`EMAIL_HOST_PASSWORD` and a verified `DEFAULT_FROM_EMAIL` in production. With
+an unverified domain Resend only delivers from `onboarding@resend.dev` to the
+account owner's own inbox — verify a domain first. Accepted risk: a password
+reset does not revoke already-issued JWTs (access 1h / refresh 7d).
 
 ### Rate limiting
 
@@ -375,9 +378,11 @@ can be downloaded without the JWT (served as attachments, see above).
 | `DJANGO_NUM_PROXIES`          | ❌       | Proxy hops in front of gunicorn for IP-keyed rate limits (default `1` = nginx) |
 | `CUSTOM_DOMAIN`               | ❌       | Optional extra CORS origin                     |
 | `GOOGLE_CLIENT_ID`            | ❌       | Google OAuth client ID; enables Google Sign-In (unset = disabled) |
-| `RESEND_API_KEY`              | ✅ prod  | Resend API key for transactional email (signup/reset OTPs); unset = console backend in DEBUG only |
+| `EMAIL_HOST_PASSWORD`         | ✅ prod  | SMTP password / API key for transactional email (signup/reset OTPs) |
+| `EMAIL_HOST`                  | ❌       | SMTP server host (default: `smtp.resend.com`) |
+| `EMAIL_PORT`                  | ❌       | SMTP server port (default: `587`) |
 | `DEFAULT_FROM_EMAIL`          | ❌       | Verified sender address, e.g. `Login Portal <noreply@yourdomain.com>` |
-| `EMAIL_BACKEND`               | ❌       | Override the Django email backend (default: Resend in prod, console in DEBUG) |
+| `EMAIL_BACKEND`               | ❌       | Override the Django email backend (default: SMTP in prod, console in DEBUG) |
 
 Documents are stored under `media/documents/` (mount a persistent volume at
 `/app/media` in production) and served through the signed download endpoint.

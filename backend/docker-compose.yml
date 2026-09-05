@@ -47,10 +47,10 @@ services:
       CORS_ALLOWED_ORIGINS: ""
       # Google Sign-In (optional): OAuth "Web application" client ID.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      # Transactional email (signup OTP, password reset) via Resend.
-      # Unset falls back to the console backend (DEBUG only); verify a
-      # sending domain in Resend first.
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      # Transactional email (signup OTP, password reset) via Django's SMTP
+      # backend. Defaults to Resend (smtp.resend.com:587); override EMAIL_HOST
+      # to use another provider. EMAIL_HOST_PASSWORD holds the API key.
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
       DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-Login Portal <onboarding@resend.dev>}
     volumes:
       - media_data:/app/media

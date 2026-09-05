@@ -20,7 +20,7 @@ class EmailOTPTests(APITestCase):
     """Signup verification + password reset OTP flows.
 
     The test runner swaps EMAIL_BACKEND to locmem, so codes are read from
-    ``mail.outbox`` — no network, no Resend key needed.
+    ``mail.outbox`` — no network, no SMTP/Resend key needed.
     """
 
     def setUp(self):
@@ -219,7 +219,7 @@ class EmailOTPTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    @mock.patch("kyc.views.auth.issue_otp", side_effect=RuntimeError("Resend down"))
+    @mock.patch("kyc.views.auth.issue_otp", side_effect=RuntimeError("smtp down"))
     def test_register_survives_email_send_failure(self, _mock):
         """An email outage must not turn signup into a 500: the account is
         already committed, so the client gets 201 and recovers via resend."""
@@ -236,7 +236,7 @@ class EmailOTPTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
-    @mock.patch("kyc.views.auth.request_otp", side_effect=RuntimeError("Resend down"))
+    @mock.patch("kyc.views.auth.request_otp", side_effect=RuntimeError("smtp down"))
     def test_resend_and_reset_request_survive_email_send_failure(self, _mock):
         """Send failures keep the generic 200 (enumeration safety) instead of
         surfacing as a 500."""

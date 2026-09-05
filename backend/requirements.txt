@@ -7,8 +7,6 @@ django-cors-headers==4.9.0
 # Google Sign-In; the [socialaccount] extra pulls in requests/PyJWT/etc.
 django-allauth==65.19.2
 requests==2.34.2
-# Transactional email (OTP codes) via the Resend HTTP API (kyc/email.py).
-resend==2.43.0
 PyJWT==2.13.0
 cryptography==50.0.1
 oauthlib==3.3.1
@@ -18,9 +16,7 @@ gunicorn==26.2.0
 whitenoise==6.12.0
 # PostgreSQL driver: psycopg 3; the [binary] extra ships its own libpq.
 psycopg[binary]==3.3.5
-dj-database-url==3.1.2
 python-dotenv==1.2.3
-python-json-logger==4.2.0
 # Phone validation/normalisation (libphonenumber port), mirroring the SPA.
 phonenumbers==9.0.38
 # Community-maintained disposable/burner email blocklist. Bump to pick up new
