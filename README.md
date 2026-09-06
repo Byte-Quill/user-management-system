@@ -15,6 +15,10 @@ a **100% free and open-source stack** — no paid services, no vendor lock-in.
   periodically sweeps expired rows.
 - **Deployment:** docker-compose (Postgres + backend + nginx) or any Docker host
 
+> **Full architecture:** system context, layering, data model, workflows,
+> security model, and decision records — see
+> [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ---
 
 ## Architecture
@@ -91,7 +95,8 @@ user-management-system/
 │   │   ├── admin.py            # hardened Django admin
 │   │   ├── urls.py             # /api/ routes
 │   │   ├── management/commands/
-│   │   │   └── seed_demo.py            # demo users + sample data
+│   │   │   ├── seed_demo.py            # demo users + sample data
+│   │   │   └── validation_contract.py  # emits the SPA validation contract
 │   │   └── migrations/
 │   ├── scripts/
 │   │   └── gen_disposable_emails.py    # regenerates the frontend blocklist
@@ -112,6 +117,8 @@ user-management-system/
 │   │   │   │                   # per-domain endpoint modules (auth,
 │   │   │   │                   # applications, users, analytics)
 │   │   │   └── validation.ts   # client-side validators mirroring backend rules
+│   │   │   ├── backend-contract.json  # generated from backend rules
+│   │   │   └── contract.test.ts       # fails CI on backend/SPA rule drift
 │   │   ├── types/              # API types split per domain (user, application,
 │   │   │                       # analytics, common)
 │   │   ├── features/           # vertical slices, each owning its pages/components
@@ -122,9 +129,11 @@ user-management-system/
 │   │   │   ├── users/          # user management console
 │   │   │   ├── analytics/      # CEO analytics
 │   │   │   └── dashboard/      # applicant dashboard
-│   │   ├── components/         # ui/ (Field, Pagination, StatusBadge),
-│   │   │                       # form/ (CountrySelect, DateOfBirthInput,
-│   │   │                       # PhoneInputField), layout/ (Layout)
+│   │   ├── components/         # ui/ (Field, Button, Alert, Modal, Skeleton,
+│   │   │                       # Pagination, StatusBadge, PasswordStrength,
+│   │   │                       # icons), form/ (CountrySelect,
+│   │   │                       # DateOfBirthInput, PhoneInputField),
+│   │   │                       # layout/ (Layout)
 │   │   ├── data/               # countries.ts (ISO 3166-1 + flags),
 │   │   │                       # disposableEmails.ts (generated blocklist,
 │   │   │                       # mirrors backend/scripts/gen_disposable_emails.py)
@@ -443,7 +452,7 @@ account. Login accepts email or phone (`+919876543210` for the applicant).
 
 ```bash
 cd backend
-python manage.py test kyc           # 82 tests: auth, email OTP, Google Sign-In, flow, uploads, downloads, permissions, admin, cache
+python manage.py test kyc           # 124 tests: auth, email OTP, Google Sign-In, flow, uploads, downloads, permissions, admin, users, analytics, cache, middleware, contract
 
 cd ../frontend
 bun test                            # client-side validator suite (mirrors backend rules)
