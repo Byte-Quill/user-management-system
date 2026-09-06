@@ -1,5 +1,3 @@
-
-
 export const DISPOSABLE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
   "0-mail.com",
   "0-mailer.dynv6.net",

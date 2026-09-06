@@ -1,4 +1,3 @@
-
 export default function PasswordStrength({ password }: { password: string }) {
   if (!password) return null;
   let score = 0;

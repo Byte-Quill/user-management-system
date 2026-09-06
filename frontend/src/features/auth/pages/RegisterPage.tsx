@@ -233,14 +233,11 @@ export default function RegisterPage() {
         country: form.country.trim() || undefined,
       });
       if (email) {
-
         navigate("/verify-email", { state: { email } });
       } else {
-
         navigate("/login", { state: { registered: true } });
       }
     } catch (err) {
-
       if (err instanceof api.ApiError && err.body && typeof err.body === "object") {
         const body = err.body as Record<string, string | string[]>;
         const errors: Partial<Record<FieldKey, string>> = {};
@@ -279,7 +276,6 @@ export default function RegisterPage() {
           <div>
             <div className="mb-2 flex items-start justify-between">
               {STEPS.map((s, i) => {
-
                 const done =
                   i !== step && Object.keys(stepErrors[i]).length === 0;
                 return (

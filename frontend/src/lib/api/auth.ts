@@ -25,7 +25,6 @@ export const googleLogin = (credential: string) =>
   );
 
 export const register = (payload: {
-
   email?: string;
   password: string;
   first_name: string;

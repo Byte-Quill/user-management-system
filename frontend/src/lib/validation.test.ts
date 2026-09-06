@@ -63,7 +63,6 @@ describe("validateRegistrationEmail", () => {
   });
 
   test("rejects disposable/temp-mail domains", () => {
-
     const msg = validateRegistrationEmail("user@mailinator.com");
     expect(msg).toContain("Disposable or temporary email addresses are not allowed");
   });

@@ -4,7 +4,6 @@ import { COUNTRIES, countryFlag } from "@/data/countries";
 import { Select } from "@/components/ui/Field";
 
 interface CountrySelectProps {
-
   value: string;
   onChange: (e: ChangeEvent<HTMLSelectElement>) => void;
   invalid?: boolean;

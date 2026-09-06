@@ -29,14 +29,12 @@ function parseISO(value: string): Parts {
 }
 
 function daysInMonth(year: number, month: number): number {
-
   return new Date(year, month, 0).getDate();
 }
 
 const pad = (n: string) => n.padStart(2, "0");
 
 interface DateOfBirthInputProps {
-
   value: string;
 
   onChange: (iso: string) => void;
@@ -50,7 +48,6 @@ export default function DateOfBirthInput({ value, onChange, invalid = false }: D
     const next = { ...parts, ...patch };
     let iso = "";
     if (next.year && next.month && next.day) {
-
       const maxDay = daysInMonth(Number(next.year), Number(next.month));
       if (Number(next.day) > maxDay) next.day = String(maxDay);
       iso = `${next.year}-${pad(next.month)}-${pad(next.day)}`;

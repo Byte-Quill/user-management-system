@@ -14,7 +14,6 @@ export function clearTokens() {
 }
 
 async function doRefresh(): Promise<boolean> {
-
   let res: Response;
   try {
     res = await fetch(`${BASE}/auth/token/refresh/`, {
@@ -24,7 +23,6 @@ async function doRefresh(): Promise<boolean> {
       body: JSON.stringify({}),
     });
   } catch {
-
     clearTokens();
     return false;
   }
@@ -39,7 +37,6 @@ async function doRefresh(): Promise<boolean> {
       return true;
     }
   } catch {
-
   }
   clearTokens();
   return false;
@@ -108,7 +105,6 @@ export async function request<T>(
 
   let res: Response;
   try {
-
     res = await fetch(`${BASE}${path}`, {
       ...options,
       headers,

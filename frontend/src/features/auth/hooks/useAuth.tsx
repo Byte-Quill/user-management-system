@@ -21,7 +21,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-
         const refreshed = await api.refreshAccess();
         if (refreshed) {
           setUser(await api.fetchMe());
@@ -42,7 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setUser(await api.fetchMe());
     } catch (err) {
-
       api.clearTokens();
       throw err;
     }
@@ -59,7 +57,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
-
     void api.logout().catch((err) => {
       console.error("Logout blacklist failed:", err);
     });

@@ -111,7 +111,6 @@ export default function ApplicationFormPage() {
 
   const blur =
     (key: keyof ApplicationPayload) => () => {
-
       let current = form;
       if (key === "full_name") {
         current = { ...form, full_name: capitalizeWords(form.full_name) };

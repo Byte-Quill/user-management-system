@@ -65,14 +65,12 @@ export default function LoginPage() {
     setNotice("");
     setBusy(true);
     try {
-
       await login(identifier.trim(), password);
       navigate("/");
     } catch (err) {
       if (err instanceof api.ApiError && err.status === 403) {
         const body = err.body as { code?: string } | null;
         if (body?.code === "email_not_verified") {
-
           setError("Verify your email to sign in.");
           navigate("/verify-email", {
             state: { email: identifier.includes("@") ? identifier.trim() : "" },

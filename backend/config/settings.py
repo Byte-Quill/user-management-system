@@ -252,7 +252,6 @@ ACCOUNT_EMAIL_VERIFICATION = "none"
 SOCIALACCOUNT_STORE_TOKENS = False
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
-
         "APP": {"client_id": GOOGLE_CLIENT_ID},
         "SCOPE": ["profile", "email"],
         "AUTH_PARAMS": {"access_type": "online"},

@@ -2,7 +2,6 @@ import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
 
 interface PhoneInputFieldProps {
-
   value: string;
 
   onChange: (value: string) => void;

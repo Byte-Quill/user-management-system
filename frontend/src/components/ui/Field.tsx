@@ -46,7 +46,6 @@ function inputClass(invalid: boolean): string {
 }
 
 interface InvalidProp {
-
   invalid?: boolean;
 }
 
