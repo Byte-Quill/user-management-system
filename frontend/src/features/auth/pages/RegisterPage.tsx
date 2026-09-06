@@ -109,6 +109,35 @@ const STEPS: Step[] = [
   },
 ];
 
+/**
+ * Live password strength hint: length + character variety. Mirrors the
+ * backend's minimum (8) and nudges toward stronger passphrases without
+ * blocking anything the backend would accept.
+ */
+function PasswordStrengthMeter({ password }: { password: string }) {
+  if (!password) return null;
+  let score = 0;
+  if (password.length >= 8) score += 1;
+  if (password.length >= 12) score += 1;
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
+  if (/\d/.test(password) && /[^a-zA-Z0-9]/.test(password)) score += 1;
+  const labels = ["Too weak", "Weak", "Fair", "Good", "Strong"];
+  const colors = ["bg-red-400", "bg-orange-400", "bg-amber-400", "bg-lime-500", "bg-emerald-500"];
+  return (
+    <div className="mt-1.5 flex items-center gap-2" aria-label={`Password strength: ${labels[score]}`}>
+      <div className="flex h-1 flex-1 gap-1">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className={`h-full flex-1 rounded-full ${i < score ? colors[score] : "bg-slate-200"}`}
+          />
+        ))}
+      </div>
+      <span className="text-[11px] font-medium text-slate-500">{labels[score]}</span>
+    </div>
+  );
+}
+
 export default function RegisterPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState<RegisterForm>(INITIAL);
@@ -129,6 +158,32 @@ export default function RegisterPage() {
         return next;
       });
     };
+
+  /**
+   * Validate one field on blur (live feedback without the harshness of
+   * validating every keystroke). Confirm-password re-checks when either
+   * side changes and the field has been touched.
+   */
+  const [touched, setTouched] = useState<Partial<Record<FieldKey, true>>>({});
+  const blur = (key: FieldKey) => () => {
+    setTouched((prev) => ({ ...prev, [key]: true }));
+    const message = FIELD_VALIDATORS[key](form);
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      if (message) next[key] = message;
+      else delete next[key];
+      return next;
+    });
+    if (key === "password" && touched.confirm_password) {
+      const matchError = validateConfirmPassword(form.password, form.confirm_password);
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        if (matchError) next.confirm_password = matchError;
+        else delete next.confirm_password;
+        return next;
+      });
+    }
+  };
 
   /** Compute a step's errors without showing them. */
   const computeStepErrors = (index: number): Partial<Record<FieldKey, string>> => {
@@ -240,8 +295,13 @@ export default function RegisterPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-8">
-      <div className="w-full max-w-md rounded-lg bg-white p-8 shadow">
-        <h1 className="mb-6 text-center text-2xl font-bold text-slate-900">Create account</h1>
+      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/60">
+        <div className="mb-6 text-center">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">Create account</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Step {step + 1} of {STEPS.length} · {STEPS[step].title}
+          </p>
+        </div>
         <form onSubmit={onSubmit} className="space-y-4" noValidate>
           <div>
             <div className="mb-2 flex items-start justify-between">
@@ -315,6 +375,7 @@ export default function RegisterPage() {
                   autoComplete="email"
                   value={form.email}
                   onChange={set("email")}
+                  onBlur={blur("email")}
                   maxLength={254}
                   invalid={!!fieldErrors.email}
                 />
@@ -333,8 +394,10 @@ export default function RegisterPage() {
                   autoComplete="new-password"
                   value={form.password}
                   onChange={set("password")}
+                  onBlur={blur("password")}
                   invalid={!!fieldErrors.password}
                 />
+                <PasswordStrengthMeter password={form.password} />
               </Field>
               <Field label="Confirm password" error={fieldErrors.confirm_password}>
                 <PasswordInput
@@ -343,8 +406,17 @@ export default function RegisterPage() {
                   autoComplete="new-password"
                   value={form.confirm_password}
                   onChange={set("confirm_password")}
+                  onBlur={blur("confirm_password")}
                   invalid={!!fieldErrors.confirm_password}
                 />
+                {form.confirm_password && !fieldErrors.confirm_password && (
+                  <span className="mt-1 flex items-center gap-1 text-xs text-emerald-600">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3.5 w-3.5" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                    </svg>
+                    Passwords match
+                  </span>
+                )}
               </Field>
             </>
           )}
@@ -359,6 +431,7 @@ export default function RegisterPage() {
                     autoComplete="given-name"
                     value={form.first_name}
                     onChange={set("first_name")}
+                    onBlur={blur("first_name")}
                     maxLength={150}
                     invalid={!!fieldErrors.first_name}
                   />
@@ -369,6 +442,7 @@ export default function RegisterPage() {
                     autoComplete="family-name"
                     value={form.last_name}
                     onChange={set("last_name")}
+                    onBlur={blur("last_name")}
                     maxLength={150}
                     invalid={!!fieldErrors.last_name}
                   />
@@ -389,6 +463,7 @@ export default function RegisterPage() {
                   autoComplete="sex"
                   value={form.gender}
                   onChange={set("gender")}
+                  onBlur={blur("gender")}
                   invalid={!!fieldErrors.gender}
                 >
                   <option value="" disabled>

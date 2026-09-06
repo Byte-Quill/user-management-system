@@ -1,5 +1,4 @@
-import { useMemo } from "react";
-import { PhoneInput, usePhoneInput } from "react-international-phone";
+import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
 
 interface PhoneInputFieldProps {
@@ -25,22 +24,9 @@ export default function PhoneInputField({
   invalid = false,
 }: PhoneInputFieldProps) {
   const borderColor = invalid ? "#f87171" : "#cbd5e1";
-
-  // usePhoneInput drives the state so we can suppress the library's
-  // default-country prefill ("+1") and start from a truly empty field.
-  const { inputValue, handlePhoneValueChange, inputRef } = usePhoneInput({
-    value,
-    onChange: ({ phone }) => onChange(phone),
-    disableDialCodePrefill: true,
-  });
-
-  // Hide the library's own input; render ours so the empty state is clean.
-  const showValue = useMemo(() => inputValue, [inputValue]);
-
   return (
     <PhoneInput
-      ref={inputRef}
-      value={showValue}
+      value={value}
       onChange={(phone) => onChange(phone)}
       placeholder="Phone number"
       inputProps={{ autoComplete: "tel" }}

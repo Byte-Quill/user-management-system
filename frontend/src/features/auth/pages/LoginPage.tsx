@@ -86,6 +86,17 @@ export default function LoginPage() {
           : ""
   );
   const [busy, setBusy] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
+
+  /** Any edit after a failure clears the error — stale errors are noise. */
+  const onIdentifierChange = (next: string) => {
+    setIdentifier(next);
+    if (error) setError("");
+  };
+  const onPasswordChange = (next: string) => {
+    setPassword(next);
+    if (error) setError("");
+  };
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -155,7 +166,7 @@ export default function LoginPage() {
                   autoComplete="username"
                   placeholder="you@example.com or +91 98765 43210"
                   value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
+                  onChange={(e) => onIdentifierChange(e.target.value)}
                   aria-invalid={!!error}
                   className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
@@ -170,8 +181,14 @@ export default function LoginPage() {
                 required
                 autoComplete="current-password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => onPasswordChange(e.target.value)}
+                onKeyUp={(e) => setCapsLock(e.getModifierState?.("CapsLock") ?? false)}
               />
+              {capsLock && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-amber-600" role="status">
+                  <IconAlert /> Caps Lock is on.
+                </p>
+              )}
             </div>
 
             {error && (
@@ -228,7 +245,13 @@ export default function LoginPage() {
           </p>
         </div>
         <p className="mt-4 text-center text-xs text-slate-400">
-          Protected by rate limiting and audit logging.
+          By signing in you agree <a
+            href="/terms"
+            className="text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-700 hover:decoration-slate-500"
+          >
+            Terms &amp; Conditions
+          </a>
+          .
         </p>
       </div>
     </div>
