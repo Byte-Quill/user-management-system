@@ -425,11 +425,19 @@ bun run dev                         # http://localhost:5173
 
 ### Demo accounts (after `seed_demo`)
 
-| Role      | Email              | Password   |
-| --------- | ------------------ | ---------- |
-| Admin     | admin@kyc.local    | Admin@123  |
-| Reviewer  | reviewer@kyc.local | Review@123 |
-| Applicant | user@kyc.local     | User@123   |
+All accounts are pre-verified (skip the email-OTP gate). `seed_demo` refuses
+to run unless `DJANGO_DEBUG=true` — the credentials are well-known and must
+never exist in production.
+
+| Role        | Email               | Password    |
+| ----------- | ------------------- | ----------- |
+| Super Admin | superadmin@kyc.local | Super@123  |
+| Admin       | admin@kyc.local     | Admin@123   |
+| CEO         | ceo@kyc.local       | Ceo@12345   |
+| Applicant   | user@kyc.local      | User@123    |
+
+The seed also creates a sample draft KYC application for the applicant
+account. Login accepts email or phone (`+919876543210` for the applicant).
 
 ### Tests
 

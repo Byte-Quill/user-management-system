@@ -82,7 +82,9 @@ working:
 - `/admin/` edge rate limiting (auth zone)
 - Mandatory `DJANGO_SECRET_KEY` / `POSTGRES_PASSWORD` env vars
 - Attachment `Content-Disposition` on document downloads
-- `seed_demo` refuses to run with `DJANGO_DEBUG=false` without `--force`
+- `seed_demo` refuses to run with `DJANGO_DEBUG=false` (well-known demo
+  credentials: superadmin@kyc.local / Super@123, admin@kyc.local / Admin@123,
+  ceo@kyc.local / Ceo@12345, user@kyc.local / User@123 — local dev only)
 - Per-IP + per-credential login throttles; `Retry-After` on 429s
 - XFF spoof test (`test_throttle_ident_uses_last_xff_entry`)
 - Download token expiry test
