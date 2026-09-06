@@ -1,4 +1,4 @@
-import { isValidPhoneNumber } from "react-phone-number-input";
+import { isValidPhoneNumber } from "libphonenumber-js/max";
 
 import type { ApplicationPayload } from "@/types";
 import { isDisposableEmail } from "@/data/disposableEmails";
