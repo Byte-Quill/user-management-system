@@ -12,6 +12,3 @@ class SeedDemoTests(TestCase):
             with self.assertRaises(CommandError):
                 call_command("seed_demo")
         self.assertFalse(User.objects.filter(email="admin@kyc.local").exists())
-
-
-

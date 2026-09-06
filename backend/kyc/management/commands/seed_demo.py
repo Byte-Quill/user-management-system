@@ -14,8 +14,7 @@ class Command(BaseCommand):
     help = "Create demo users (super admin/admin/ceo/applicant) and a sample application."
 
     def handle(self, *args, **options):
-        # No override: these are well-known credentials, so the command
-        # must never run against a production database.
+
         if not settings.DEBUG:
             raise CommandError(
                 "seed_demo creates weak, well-known credentials (Admin@123 etc.) "
@@ -29,7 +28,7 @@ class Command(BaseCommand):
                 "role": User.Role.SUPER_ADMIN,
                 "is_staff": True,
                 "is_superuser": True,
-                # Trusted local-dev fixtures: skip the email-OTP gate.
+
                 "email_verified": True,
             },
         )

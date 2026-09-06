@@ -9,8 +9,12 @@ import DateOfBirthInput from "@/components/form/DateOfBirthInput";
 import { Field, PasswordInput, Select, TextInput } from "@/components/ui/Field";
 import GoogleSignInButton from "@/features/auth/components/GoogleSignInButton";
 import PhoneInputField from "@/components/form/PhoneInputField";
+import PasswordStrength from "@/components/ui/PasswordStrength";
 import {
   GENDER_OPTIONS,
+  LIMITS,
+  PASSWORD_MIN_LENGTH,
+  capitalizeFirst,
   validateConfirmPassword,
   validateGender,
   validateName,
@@ -61,32 +65,31 @@ const INITIAL: RegisterForm = {
 
 type FieldKey = keyof RegisterForm;
 
-/** Per-field validators; each step validates only its own fields. */
+
 const FIELD_VALIDATORS: Record<FieldKey, (form: RegisterForm) => string | null> = {
   first_name: (f) => validateName(f.first_name, "First name"),
   middle_name: (f) => validateName(f.middle_name, "Middle name", false),
   last_name: (f) => validateName(f.last_name, "Last name"),
-  // Email and phone are each optional; empty values skip their validator.
-  // The at-least-one rule is enforced in computeStepErrors.
+
   email: (f) => (f.email.trim() ? validateRegistrationEmail(f.email) : null),
   phone: (f) => (f.phone.trim() ? validateE164Phone(f.phone) : null),
   gender: (f) => validateGender(f.gender),
   password: (f) => validatePassword(f.password),
   confirm_password: (f) => validateConfirmPassword(f.password, f.confirm_password),
-  // Optional profile details — only bounds-checked when provided.
+
   date_of_birth: (f) => validateOptionalDateOfBirth(f.date_of_birth),
-  nationality: (f) => validateOptional(f.nationality, "Nationality", 100),
-  address_line1: (f) => validateOptional(f.address_line1, "Address line 1", 255),
-  address_line2: (f) => validateOptional(f.address_line2, "Address line 2", 255),
-  city: (f) => validateOptional(f.city, "City", 100),
-  state: (f) => validateOptional(f.state, "State", 100),
-  postal_code: (f) => validateOptional(f.postal_code, "Postal code", 20),
-  country: (f) => validateOptional(f.country, "Country", 100),
+  nationality: (f) => validateOptional(f.nationality, "Nationality", LIMITS.nationality),
+  address_line1: (f) => validateOptional(f.address_line1, "Address line 1", LIMITS.addressLine1),
+  address_line2: (f) => validateOptional(f.address_line2, "Address line 2", LIMITS.addressLine2),
+  city: (f) => validateOptional(f.city, "City", LIMITS.city),
+  state: (f) => validateOptional(f.state, "State", LIMITS.state),
+  postal_code: (f) => validateOptional(f.postal_code, "Postal code", LIMITS.postalCode),
+  country: (f) => validateOptional(f.country, "Country", LIMITS.country),
 };
 
 interface Step {
   title: string;
-  /** Short guidance shown above the step's fields. */
+
   hint: string;
   fields: FieldKey[];
 }
@@ -109,34 +112,6 @@ const STEPS: Step[] = [
   },
 ];
 
-/**
- * Live password strength hint: length + character variety. Mirrors the
- * backend's minimum (8) and nudges toward stronger passphrases without
- * blocking anything the backend would accept.
- */
-function PasswordStrengthMeter({ password }: { password: string }) {
-  if (!password) return null;
-  let score = 0;
-  if (password.length >= 8) score += 1;
-  if (password.length >= 12) score += 1;
-  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
-  if (/\d/.test(password) && /[^a-zA-Z0-9]/.test(password)) score += 1;
-  const labels = ["Too weak", "Weak", "Fair", "Good", "Strong"];
-  const colors = ["bg-red-400", "bg-orange-400", "bg-amber-400", "bg-lime-500", "bg-emerald-500"];
-  return (
-    <div className="mt-1.5 flex items-center gap-2" aria-label={`Password strength: ${labels[score]}`}>
-      <div className="flex h-1 flex-1 gap-1">
-        {[0, 1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className={`h-full flex-1 rounded-full ${i < score ? colors[score] : "bg-slate-200"}`}
-          />
-        ))}
-      </div>
-      <span className="text-[11px] font-medium text-slate-500">{labels[score]}</span>
-    </div>
-  );
-}
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -159,15 +134,16 @@ export default function RegisterPage() {
       });
     };
 
-  /**
-   * Validate one field on blur (live feedback without the harshness of
-   * validating every keystroke). Confirm-password re-checks when either
-   * side changes and the field has been touched.
-   */
   const [touched, setTouched] = useState<Partial<Record<FieldKey, true>>>({});
   const blur = (key: FieldKey) => () => {
     setTouched((prev) => ({ ...prev, [key]: true }));
-    const message = FIELD_VALIDATORS[key](form);
+
+    let current = form;
+    if (key === "first_name" || key === "middle_name" || key === "last_name") {
+      current = { ...form, [key]: capitalizeFirst(form[key]) };
+      setForm(current);
+    }
+    const message = FIELD_VALIDATORS[key](current);
     setFieldErrors((prev) => {
       const next = { ...prev };
       if (message) next[key] = message;
@@ -185,29 +161,25 @@ export default function RegisterPage() {
     }
   };
 
-  /** Compute a step's errors without showing them. */
   const computeStepErrors = (index: number): Partial<Record<FieldKey, string>> => {
     const errors: Partial<Record<FieldKey, string>> = {};
     for (const key of STEPS[index].fields) {
       const message = FIELD_VALIDATORS[key](form);
       if (message) errors[key] = message;
     }
-    // Cross-field rule (Account step): at least one contact method required.
+
     if (index === 0 && !form.email.trim() && !form.phone.trim()) {
       errors.email = "Provide an email address or a phone number.";
     }
     return errors;
   };
 
-  // Per-step validity for the current form: drives the ✓ indicators and
-  // gates "Create account" until every step passes.
   const stepErrors = STEPS.map((_s, i) => computeStepErrors(i));
   const firstInvalidStep = stepErrors.findIndex(
     (errors) => Object.keys(errors).length > 0,
   );
   const canRegister = firstInvalidStep === -1;
 
-  /** Jump to any step — navigation is free; only account creation is gated. */
   const goToStep = (target: number) => {
     if (busy || target === step) return;
     setError("");
@@ -224,12 +196,12 @@ export default function RegisterPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
-    // Enter/submit advances freely until the final step.
+
     if (step < STEPS.length - 1) {
       setStep(step + 1);
       return;
     }
-    // Final step: every step must pass before the account is created.
+
     for (let i = 0; i < STEPS.length; i += 1) {
       if (Object.keys(stepErrors[i]).length > 0) {
         setFieldErrors(stepErrors[i]);
@@ -244,9 +216,11 @@ export default function RegisterPage() {
       await api.register({
         email: email || undefined,
         password: form.password,
-        first_name: form.first_name.trim(),
-        middle_name: form.middle_name.trim() || undefined,
-        last_name: form.last_name.trim(),
+        first_name: capitalizeFirst(form.first_name.trim()),
+        middle_name: form.middle_name.trim()
+          ? capitalizeFirst(form.middle_name.trim())
+          : undefined,
+        last_name: capitalizeFirst(form.last_name.trim()),
         phone: phone || undefined,
         gender: form.gender,
         date_of_birth: form.date_of_birth || null,
@@ -259,15 +233,14 @@ export default function RegisterPage() {
         country: form.country.trim() || undefined,
       });
       if (email) {
-        // No auto-login: the user must confirm the emailed OTP first.
+
         navigate("/verify-email", { state: { email } });
       } else {
-        // Phone-only account: nothing to verify — go straight to sign-in.
+
         navigate("/login", { state: { registered: true } });
       }
     } catch (err) {
-      // Map server-side field errors onto the wizard's fields and jump to
-      // the step that contains them, instead of one opaque message.
+
       if (err instanceof api.ApiError && err.body && typeof err.body === "object") {
         const body = err.body as Record<string, string | string[]>;
         const errors: Partial<Record<FieldKey, string>> = {};
@@ -306,7 +279,7 @@ export default function RegisterPage() {
           <div>
             <div className="mb-2 flex items-start justify-between">
               {STEPS.map((s, i) => {
-                // ✓ means the step's requirements are met (not just visited).
+
                 const done =
                   i !== step && Object.keys(stepErrors[i]).length === 0;
                 return (
@@ -376,7 +349,7 @@ export default function RegisterPage() {
                   value={form.email}
                   onChange={set("email")}
                   onBlur={blur("email")}
-                  maxLength={254}
+                  maxLength={LIMITS.email}
                   invalid={!!fieldErrors.email}
                 />
               </Field>
@@ -390,19 +363,19 @@ export default function RegisterPage() {
               <Field label="Password" error={fieldErrors.password}>
                 <PasswordInput
                   required
-                  minLength={8}
+                  minLength={PASSWORD_MIN_LENGTH}
                   autoComplete="new-password"
                   value={form.password}
                   onChange={set("password")}
                   onBlur={blur("password")}
                   invalid={!!fieldErrors.password}
                 />
-                <PasswordStrengthMeter password={form.password} />
+                <PasswordStrength password={form.password} />
               </Field>
               <Field label="Confirm password" error={fieldErrors.confirm_password}>
                 <PasswordInput
                   required
-                  minLength={8}
+                  minLength={PASSWORD_MIN_LENGTH}
                   autoComplete="new-password"
                   value={form.confirm_password}
                   onChange={set("confirm_password")}
@@ -432,7 +405,7 @@ export default function RegisterPage() {
                     value={form.first_name}
                     onChange={set("first_name")}
                     onBlur={blur("first_name")}
-                    maxLength={150}
+                    maxLength={LIMITS.name}
                     invalid={!!fieldErrors.first_name}
                   />
                 </Field>
@@ -443,7 +416,7 @@ export default function RegisterPage() {
                     value={form.last_name}
                     onChange={set("last_name")}
                     onBlur={blur("last_name")}
-                    maxLength={150}
+                    maxLength={LIMITS.name}
                     invalid={!!fieldErrors.last_name}
                   />
                 </Field>
@@ -453,7 +426,7 @@ export default function RegisterPage() {
                   autoComplete="additional-name"
                   value={form.middle_name}
                   onChange={set("middle_name")}
-                  maxLength={150}
+                  maxLength={LIMITS.name}
                   invalid={!!fieldErrors.middle_name}
                 />
               </Field>
@@ -503,7 +476,7 @@ export default function RegisterPage() {
                   autoComplete="address-line1"
                   value={form.address_line1}
                   onChange={set("address_line1")}
-                  maxLength={255}
+                  maxLength={LIMITS.addressLine1}
                   invalid={!!fieldErrors.address_line1}
                 />
               </Field>
@@ -512,7 +485,7 @@ export default function RegisterPage() {
                   autoComplete="address-line2"
                   value={form.address_line2}
                   onChange={set("address_line2")}
-                  maxLength={255}
+                  maxLength={LIMITS.addressLine2}
                   invalid={!!fieldErrors.address_line2}
                 />
               </Field>
@@ -522,7 +495,7 @@ export default function RegisterPage() {
                     autoComplete="address-level2"
                     value={form.city}
                     onChange={set("city")}
-                    maxLength={100}
+                    maxLength={LIMITS.city}
                     invalid={!!fieldErrors.city}
                   />
                 </Field>
@@ -531,7 +504,7 @@ export default function RegisterPage() {
                     autoComplete="address-level1"
                     value={form.state}
                     onChange={set("state")}
-                    maxLength={100}
+                    maxLength={LIMITS.state}
                     invalid={!!fieldErrors.state}
                   />
                 </Field>
@@ -542,7 +515,7 @@ export default function RegisterPage() {
                     autoComplete="postal-code"
                     value={form.postal_code}
                     onChange={set("postal_code")}
-                    maxLength={20}
+                    maxLength={LIMITS.postalCode}
                     invalid={!!fieldErrors.postal_code}
                   />
                 </Field>

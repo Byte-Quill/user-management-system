@@ -53,20 +53,7 @@ class Document(models.Model):
 
 @receiver(post_delete, sender=Document)
 def cleanup_document_files(sender, instance, **kwargs):
-    """Remove backing files whenever a Document row is deleted.
-
-    Django never deletes FileField files on model deletion, and the admin's
-    bulk-delete and cascade-delete paths bypass any custom ``Model.delete()``
-    override while still emitting ``post_delete`` signals. Centralising the
-    cleanup in a signal therefore covers every deletion path (API delete,
-    admin single/bulk delete, and application cascade) so identity documents
-    are never left orphaned on disk.
-
-    The delete is deferred to transaction commit: file removal is not
-    transactional, so deleting immediately would lose the file if the
-    surrounding transaction later rolls back (row restored, file gone).
-    Outside an atomic block, ``on_commit`` runs immediately.
-    """
+    """Remove backing files whenever a Document row is deleted."""
     if instance.file:
         storage = instance.file.storage
         name = instance.file.name

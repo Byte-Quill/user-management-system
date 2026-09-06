@@ -1,4 +1,6 @@
 """Application, document, audit and review serializers."""
+from datetime import date
+
 from rest_framework import serializers
 
 from kyc.common.tokens import document_download_token
@@ -14,7 +16,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "uploaded_at")
 
     def get_file(self, obj):
-        # List serialization only needs metadata — skip the download URL.
+
         if not self.context.get("include_document_url", True):
             return None
         if not obj.file:
@@ -22,8 +24,6 @@ class DocumentSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not request:
             return None
-        # Time-limited signed URL served by our own download view, so the
-        # browser can open the file in a new tab without the JWT.
 
         url = f"/api/documents/{obj.id}/download/?token={document_download_token(obj.id)}"
         return request.build_absolute_uri(url)
@@ -40,8 +40,7 @@ class AuditLogSerializer(serializers.ModelSerializer):
 
 class KYCApplicationSerializer(serializers.ModelSerializer):
     documents = DocumentSerializer(many=True, read_only=True)
-    # applicant_id is the stable ownership key (email can be null for
-    # phone-only accounts, so it cannot be used to identify the owner).
+
     applicant_id = serializers.IntegerField(source="applicant.id", read_only=True)
     applicant_email = serializers.EmailField(
         source="applicant.email", read_only=True, default=None
@@ -91,10 +90,18 @@ class KYCApplicationSerializer(serializers.ModelSerializer):
     def validate_date_of_birth(self, value):
         return validate_dob(value)
 
+    def validate_id_expiry(self, value):
+
+        if value and self.instance is None and value < date.today():
+            raise serializers.ValidationError(
+                "The ID has already expired; provide a current expiry date."
+            )
+        return value
+
     def validate_phone(self, value):
         trimmed = value.strip()
         try:
-            # Store the canonical E164 form, matching the registration path.
+
             return normalize_phone(trimmed)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc)) from exc
@@ -103,7 +110,7 @@ class KYCApplicationSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not request:
             return attrs
-        # Applicants may only edit while the application is a draft or needs resubmission
+
         if self.instance and self.instance.status not in KYCApplication.EDITABLE_STATUSES:
             raise serializers.ValidationError(
                 "This application can no longer be edited."

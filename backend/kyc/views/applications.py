@@ -1,8 +1,10 @@
 """Application endpoints: CRUD, submit, documents, review, audit, download."""
 import logging
 import mimetypes
+from datetime import date
 from urllib.parse import quote
 
+from django.conf import settings
 from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import TimestampSigner
@@ -29,7 +31,7 @@ from kyc.serializers import (
 
 logger = logging.getLogger("kyc.views")
 
-# Reviewer decision -> audit action (static; shared by the review endpoint).
+
 REVIEW_ACTION_MAP = {
     KYCApplication.Decision.APPROVE: AuditLog.Action.APPROVED,
     KYCApplication.Decision.REJECT: AuditLog.Action.REJECTED,
@@ -42,11 +44,9 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def destroy(self, request, *args, **kwargs):
-        # Application deletion is not part of the KYC flow; DELETE is only
-        # used by the dedicated document-removal action.
+
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    # User-scoped write throttles keyed by DRF action name.
     THROTTLE_SCOPES = {
         "submit": "submit",
         "documents": "documents",
@@ -57,12 +57,12 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         scope = self.THROTTLE_SCOPES.get(self.action)
         if scope:
             self.throttle_scope = scope
-            # Scoped write limit plus the global anon/user safety nets.
+
             return [WriteThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def get_serializer_context(self):
-        # List views skip signed download URLs to keep payloads lean.
+
         context = super().get_serializer_context()
         context["include_document_url"] = self.action != "list"
         return context
@@ -83,13 +83,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         return qs.filter(applicant=user)
 
     def _locked_editable(self, application, verb: str) -> KYCApplication:
-        """Lock the row and verify it is still editable.
-
-        Callers must run this inside ``transaction.atomic()``: the row lock
-        stops a concurrent submit/review from flipping the status between the
-        editable check and the caller's write. ``verb`` names the blocked
-        action for the ownership error ("edit", "upload documents", ...).
-        """
+        """Lock the row and verify it is still editable."""
         locked = KYCApplication.objects.select_for_update().get(pk=application.pk)
         if locked.applicant_id != self.request.user.id:
             raise ValidationError(f"Only the applicant can {verb}.")
@@ -98,7 +92,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         return locked
 
     def perform_create(self, serializer):
-        # Atomic so the application row and its audit entry commit together.
+
         with transaction.atomic():
             application = serializer.save(applicant=self.request.user)
             log_action(application, self.request.user, AuditLog.Action.CREATED)
@@ -113,13 +107,18 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
     def submit(self, request, pk=None):
         with transaction.atomic():
             application = self.get_object()
-            # Row lock: two concurrent submits cannot both pass the status check.
+
             application = KYCApplication.objects.select_for_update().get(pk=application.pk)
             if application.applicant_id != request.user.id:
                 raise ValidationError("Only the applicant can submit this application.")
             if not application.documents.exists():
                 raise ValidationError(
                     "At least one supporting document is required before submission."
+                )
+
+            if application.id_expiry and application.id_expiry < date.today():
+                raise ValidationError(
+                    "The ID document has expired. Update the ID details before submitting."
                 )
             try:
                 application.submit()
@@ -159,6 +158,12 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         try:
             with transaction.atomic():
                 application = self._locked_editable(application, "upload documents")
+
+                cap = getattr(settings, "MAX_DOCUMENTS_PER_APPLICATION", 10)
+                if application.documents.count() >= cap:
+                    raise ValidationError(
+                        f"At most {cap} documents can be attached to an application."
+                    )
                 document.save()
                 log_action(
                     application,
@@ -167,12 +172,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
                     detail=f"{doc_type}: {file_obj.name}",
                 )
         except Exception:
-            # document.save() writes the file to storage before the row is
-            # inserted; if anything after that fails (row insert, audit log),
-            # the transaction rolls back but the file would remain on disk.
-            # Once the storage write completes, file.name holds the generated
-            # storage path (documents/...) rather than the original upload
-            # name, so delete it to avoid orphaning PII.
+
             try:
                 if document.file.name and document.file.name != file_obj.name:
                     document.file.delete(save=False)
@@ -187,11 +187,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["delete"], url_path=r"documents/(?P<doc_id>[^/.]+)")
     def remove_document(self, request, pk=None, doc_id=None):
-        """Remove one document while the application is still editable.
-
-        The post_delete signal removes the file from disk, so the row and the
-        PII file always disappear together.
-        """
+        """Remove one document while the application is still editable."""
         application = self.get_object()
         with transaction.atomic():
             application = self._locked_editable(application, "remove documents")
@@ -199,12 +195,12 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             try:
                 document = application.documents.get(pk=doc_id)
             except (Document.DoesNotExist, ValueError, DjangoValidationError) as exc:
-                # ValueError/ValidationError: malformed UUID in the URL -> 404, never 500.
+
                 raise NotFound("Document not found.") from exc
 
             doc_type = document.doc_type
             original_filename = document.original_filename
-            document.delete()  # post_delete signal removes the file from disk
+            document.delete()
             log_action(
                 application,
                 request.user,
@@ -225,8 +221,11 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         notes = serializer.validated_data["notes"]
         with transaction.atomic():
             application = self.get_object()
-            # Row lock: two concurrent reviews cannot both pass the status check.
+
             application = KYCApplication.objects.select_for_update().get(pk=application.pk)
+
+            if application.applicant_id == request.user.id:
+                raise ValidationError("You cannot review your own application.")
             try:
                 application.apply_review(reviewer=request.user, decision=decision, notes=notes)
             except DjangoValidationError as exc:
@@ -243,17 +242,11 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         return self.get_paginated_response(serializer.data)
 
 class DocumentDownloadView(APIView):
-    """Serve a document behind a time-limited signed token.
-
-    Tokens are issued by the API only after the ownership/role checks pass,
-    and verified here statelessly via Django's ``TimestampSigner`` — letting
-    browsers open the file without sending the JWT.
-    """
+    """Serve a document behind a time-limited signed token."""
 
     authentication_classes = ()
     permission_classes = (AllowAny,)
-    # Unauthenticated endpoint: bound downloads per IP so the file-serving
-    # path cannot be scraped or used for DoS.
+
     throttle_scope = "download"
     throttle_classes = (DownloadThrottle,)
 
@@ -264,11 +257,10 @@ class DocumentDownloadView(APIView):
                 token, max_age=DOWNLOAD_TOKEN_MAX_AGE
             )
         except signing.BadSignature as exc:
-            # Covers forged tokens, tampered ids, and expired timestamps.
-            # 404 (not 403) so an invalid token leaks nothing about the id.
+
             raise NotFound("Document not found.") from exc
         if signed_id != str(doc_id):
-            # A valid token for a *different* document must not grant access.
+
             raise NotFound("Document not found.")
         try:
             document = Document.objects.get(pk=doc_id)
@@ -285,10 +277,7 @@ class DocumentDownloadView(APIView):
             or "application/octet-stream"
         )
         response = FileResponse(handle, content_type=content_type)
-        # attachment (not inline): in-browser PDF viewers execute embedded
-        # JavaScript in the app origin's context, so a malicious PDF could
-        # act with the viewer's session — forcing a download removes that
-        # XSS surface. RFC 5987 filename* for non-ASCII names.
+
         response["Content-Disposition"] = (
             f"attachment; filename*=UTF-8''{quote(document.original_filename)}"
         )

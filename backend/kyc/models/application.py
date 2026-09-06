@@ -29,7 +29,6 @@ class KYCApplication(models.Model):
         REJECT = "reject", "Reject"
         REQUEST_RESUBMISSION = "request_resubmission", "Request Resubmission"
 
-    # Statuses in which the applicant may still modify the application.
     EDITABLE_STATUSES = (Status.DRAFT, Status.RESUBMISSION_REQUESTED)
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -77,7 +76,7 @@ class KYCApplication(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["applicant", "status"], name="kyc_app_applicant_status_idx"),
-            # Review queue: status-filtered list ordered by -created_at.
+
             models.Index(fields=["status", "-created_at"], name="kyc_app_status_created_idx"),
         ]
 
@@ -85,8 +84,7 @@ class KYCApplication(models.Model):
         return f"KYC {self.id} — {self.full_name} [{self.status}]"
 
     def submit(self):
-        # Callers must fetch this row via select_for_update() inside a
-        # transaction so concurrent submits cannot both pass the status check.
+
         if self.status not in (self.Status.DRAFT, self.Status.RESUBMISSION_REQUESTED):
             raise ValidationError(
                 "Only draft or resubmission-requested applications can be submitted."
@@ -97,8 +95,7 @@ class KYCApplication(models.Model):
 
     def apply_review(self, *, reviewer: User, decision: str, notes: str = ""):
         """Apply a reviewer decision and record audit metadata."""
-        # Callers must fetch this row via select_for_update() inside a
-        # transaction so two concurrent reviews cannot both pass the check.
+
         if self.status != self.Status.SUBMITTED:
             raise ValidationError("Application is not in a reviewable state.")
         mapping = {

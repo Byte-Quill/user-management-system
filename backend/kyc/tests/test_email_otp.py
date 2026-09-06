@@ -17,11 +17,7 @@ User = get_user_model()
 
 @FAST_PASSWORD_HASHERS
 class EmailOTPTests(APITestCase):
-    """Signup verification + password reset OTP flows.
-
-    The test runner swaps EMAIL_BACKEND to locmem, so codes are read from
-    ``mail.outbox`` — no network, no SMTP/Resend key needed.
-    """
+    """Signup verification + password reset OTP flows."""
 
     def setUp(self):
         cache.clear()
@@ -48,7 +44,7 @@ class EmailOTPTests(APITestCase):
     def test_verify_email_rejects_wrong_or_expired_code(self):
         self.register()
         code = last_otp_code()
-        wrong = ("0" if code[0] != "0" else "1") * 6  # guaranteed != code
+        wrong = ("0" if code[0] != "0" else "1") * 6
         res = self.client.post(
             "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": wrong}
         )
@@ -68,12 +64,11 @@ class EmailOTPTests(APITestCase):
     def test_otp_is_single_use_and_predecessor_invalidated(self):
         self.register()
         first_code = last_otp_code()
-        # Resend (cooldown bypassed by clearing last_sent_at) -> new code.
+
         EmailOTP.objects.filter(user__email="otp@kyc.local").update(last_sent_at=None)
         self.client.post("/api/auth/verify-email/resend/", {"email": "otp@kyc.local"})
         second_code = last_otp_code()
 
-        # The first code is dead once a new one is issued.
         res = self.client.post(
             "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": first_code}
         )
@@ -83,7 +78,7 @@ class EmailOTPTests(APITestCase):
             "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": second_code}
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        # Single-use: replaying the consumed code must fail.
+
         res = self.client.post(
             "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": second_code}
         )
@@ -92,26 +87,26 @@ class EmailOTPTests(APITestCase):
     def test_attempt_cap_invalidates_otp(self):
         self.register()
         code = last_otp_code()
-        wrong = ("0" if code[0] != "0" else "1") * 6  # guaranteed != code
+        wrong = ("0" if code[0] != "0" else "1") * 6
         for _ in range(5):
             self.client.post(
                 "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": wrong}
             )
-        # Even the correct code is rejected after 5 failed attempts.
+
         res = self.client.post(
             "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": code}
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_resend_is_enumeration_safe_and_cooldown_enforced(self):
-        # Unknown email: generic 200, nothing sent.
+
         res = self.client.post("/api/auth/verify-email/resend/", {"email": "ghost@kyc.local"})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(mail.outbox), 0)
 
         self.register()
         self.assertEqual(len(mail.outbox), 1)
-        # Immediate resend is inside the 60s cooldown: no second email.
+
         res = self.client.post("/api/auth/verify-email/resend/", {"email": "otp@kyc.local"})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(mail.outbox), 1)
@@ -172,8 +167,7 @@ class EmailOTPTests(APITestCase):
         self.assertIn("new_password", res.data)
 
     def test_password_reset_verifies_email_and_unblocks_login(self):
-        """An unverified signup whose only recovery path is the reset flow:
-        the OTP arrived in the account's inbox, so confirm also verifies."""
+        """An unverified signup whose only recovery path is the reset flow:."""
         self.register()
         self.client.post("/api/auth/password-reset/request/", {"email": "otp@kyc.local"})
         res = self.client.post(
@@ -221,15 +215,14 @@ class EmailOTPTests(APITestCase):
 
     @mock.patch("kyc.views.auth.issue_otp", side_effect=RuntimeError("smtp down"))
     def test_register_survives_email_send_failure(self, _mock):
-        """An email outage must not turn signup into a 500: the account is
-        already committed, so the client gets 201 and recovers via resend."""
+        """An email outage must not turn signup into a 500: the account is."""
         res = self.client.post(
             "/api/auth/register/", register_payload("outage@kyc.local")
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         user = User.objects.get(email="outage@kyc.local")
         self.assertFalse(user.email_verified)
-        # Login stays blocked until a (later, successful) verification.
+
         res = self.client.post(
             "/api/auth/token/",
             {"email": "outage@kyc.local", "password": "Str0ngPass!"},
@@ -238,8 +231,7 @@ class EmailOTPTests(APITestCase):
 
     @mock.patch("kyc.views.auth.request_otp", side_effect=RuntimeError("smtp down"))
     def test_resend_and_reset_request_survive_email_send_failure(self, _mock):
-        """Send failures keep the generic 200 (enumeration safety) instead of
-        surfacing as a 500."""
+        """Send failures keep the generic 200 (enumeration safety) instead of."""
         self.register()
         res = self.client.post(
             "/api/auth/verify-email/resend/", {"email": "otp@kyc.local"}
@@ -249,7 +241,6 @@ class EmailOTPTests(APITestCase):
             "/api/auth/password-reset/request/", {"email": "otp@kyc.local"}
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-
 
 
 @FAST_PASSWORD_HASHERS
@@ -263,7 +254,7 @@ class OTPResendConcurrencyTests(TransactionTestCase):
             "/api/auth/register/", register_payload("race@kyc.local")
         )
         assert res.status_code == 201, res.content
-        # Clear the cooldown so both requests are eligible to send.
+
         EmailOTP.objects.filter(user__email="race@kyc.local").update(last_sent_at=None)
         sent_before = len(mail.outbox)
 
@@ -279,15 +270,11 @@ class OTPResendConcurrencyTests(TransactionTestCase):
         for t in threads:
             t.join()
 
-        # Exactly one email: the row lock serializes the cooldown check.
         self.assertEqual(len(mail.outbox), sent_before + 1)
-        # And only one active OTP remains.
+
         self.assertEqual(
             EmailOTP.objects.filter(
                 user__email="race@kyc.local", consumed_at__isnull=True
             ).count(),
             1,
         )
-
-
-

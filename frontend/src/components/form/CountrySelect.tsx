@@ -4,15 +4,15 @@ import { COUNTRIES, countryFlag } from "@/data/countries";
 import { Select } from "@/components/ui/Field";
 
 interface CountrySelectProps {
-  /** The stored value is the country's English name (e.g. "India"). */
+
   value: string;
   onChange: (e: ChangeEvent<HTMLSelectElement>) => void;
   invalid?: boolean;
-  /** Placeholder shown for the empty selection; selectable so optional fields can be cleared. */
+
   placeholder?: string;
 }
 
-/** Country picker with flag emoji, used for nationality and address country. */
+
 export default function CountrySelect({
   value,
   onChange,

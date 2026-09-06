@@ -2,22 +2,14 @@ import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
 
 interface PhoneInputFieldProps {
-  /** E.164 value, e.g. "+919876543210". Empty string when unset. */
+
   value: string;
-  /** Called with the E.164 value ("" when cleared). */
+
   onChange: (value: string) => void;
   invalid?: boolean;
 }
 
-/**
- * Telegram-style phone input (react-international-phone): a country selector
- * with flag + dial code on the left, national number on the right. The
- * dropdown is searchable. Emits canonical E.164 ("+91…"), matching the
- * backend's normalize_phone().
- *
- * No default country: the selector starts as a globe and resolves once the
- * user picks a country or types a dial code the library can guess.
- */
+
 export default function PhoneInputField({
   value,
   onChange,

@@ -8,7 +8,7 @@ export type ApplicationStatus =
 export interface KycDocument {
   id: string;
   doc_type: "id_proof" | "address_proof" | "selfie";
-  /** Signed download URL; null in list payloads (metadata only). */
+
   file: string | null;
   original_filename: string;
   uploaded_at: string;
@@ -16,7 +16,7 @@ export interface KycDocument {
 
 export interface KYCApplication {
   id: string;
-  /** Stable ownership key (email can be null for phone-only accounts). */
+
   applicant_id: number;
   applicant_email: string | null;
   status: ApplicationStatus;

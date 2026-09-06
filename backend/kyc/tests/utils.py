@@ -7,7 +7,7 @@ from django.test import override_settings
 
 User = get_user_model()
 
-# PBKDF2 dominates runtime; tests never verify strength, so use MD5.
+
 FAST_PASSWORD_HASHERS = override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"]
 )
@@ -30,8 +30,7 @@ APP_PAYLOAD = {
 
 
 def make_user(email, role, password="Passw0rd!"):
-    # Fixtures are grandfathered users (email-verified); fresh API
-    # registrations start unverified.
+
     return User.objects.create_user(
         email=email,
         username=email.split("@")[0],
@@ -70,4 +69,3 @@ def register_payload(email, phone="+919876500001", **overrides):
     }
     payload.update(overrides)
     return payload
-

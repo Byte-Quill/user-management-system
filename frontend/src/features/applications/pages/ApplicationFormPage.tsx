@@ -7,9 +7,11 @@ import { useAuth } from "@/features/auth/hooks/useAuth";
 import CountrySelect from "@/components/form/CountrySelect";
 import DateOfBirthInput from "@/components/form/DateOfBirthInput";
 import { Field, Select, TextInput } from "@/components/ui/Field";
+import Alert from "@/components/ui/Alert";
+import Button from "@/components/ui/Button";
 import PhoneInputField from "@/components/form/PhoneInputField";
 import type { ApplicationPayload } from "@/types";
-import { validateApplication } from "@/lib/validation";
+import { LIMITS, capitalizeWords, todayISO, validateApplication } from "@/lib/validation";
 import type { FieldErrors } from "@/lib/validation";
 
 const EMPTY: ApplicationPayload = {
@@ -31,11 +33,10 @@ const EMPTY: ApplicationPayload = {
 export default function ApplicationFormPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  // Present when editing an existing draft (route /applications/:id/edit).
+
   const { id } = useParams<{ id: string }>();
   const [loadingExisting, setLoadingExisting] = useState(!!id);
-  // Pre-fill what registration already collected so the applicant does not
-  // re-type identity data.
+
   const [form, setForm] = useState<ApplicationPayload>(() => ({
     ...EMPTY,
     full_name: user
@@ -55,7 +56,6 @@ export default function ApplicationFormPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Edit mode: load the existing application into the form.
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
@@ -109,6 +109,25 @@ export default function ApplicationFormPage() {
       });
     };
 
+  const blur =
+    (key: keyof ApplicationPayload) => () => {
+
+      let current = form;
+      if (key === "full_name") {
+        current = { ...form, full_name: capitalizeWords(form.full_name) };
+        setForm(current);
+      }
+      const message = validateApplication(current)[key];
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        if (message) next[key] = message;
+        else delete next[key];
+        return next;
+      });
+    };
+
+  const expiryIsPast = !!form.id_expiry && form.id_expiry < todayISO();
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
@@ -119,7 +138,11 @@ export default function ApplicationFormPage() {
     }
     setBusy(true);
     try {
-      const payload: ApplicationPayload = { ...form, id_expiry: form.id_expiry || null };
+      const payload: ApplicationPayload = {
+        ...form,
+        full_name: capitalizeWords(form.full_name.trim()),
+        id_expiry: form.id_expiry || null,
+      };
       const app = id
         ? await api.updateApplication(id, payload)
         : await api.createApplication(payload);
@@ -137,15 +160,18 @@ export default function ApplicationFormPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="mb-6 text-2xl font-bold">
+      <h1 className="mb-1 text-2xl font-bold text-slate-900">
         {id ? "Edit KYC Application" : "New KYC Application"}
       </h1>
-      <form onSubmit={onSubmit} className="space-y-6 rounded-lg bg-white p-6 shadow">
+      <p className="mb-6 text-sm text-slate-500">
+        Fields are checked as you go; you can save a draft and finish later.
+      </p>
+      <form onSubmit={onSubmit} className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <section>
           <h2 className="mb-3 text-lg font-semibold text-slate-800">Personal Information</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Full name" error={fieldErrors.full_name}>
-              <TextInput required value={form.full_name} onChange={set("full_name")} maxLength={255}
+              <TextInput required value={form.full_name} onChange={set("full_name")} onBlur={blur("full_name")} maxLength={LIMITS.fullName}
                 invalid={!!fieldErrors.full_name} />
             </Field>
             <Field label="Date of birth" error={fieldErrors.date_of_birth}>
@@ -168,27 +194,27 @@ export default function ApplicationFormPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Field label="Address line 1" error={fieldErrors.address_line1}>
-                <TextInput required value={form.address_line1} onChange={set("address_line1")}
-                  maxLength={255} invalid={!!fieldErrors.address_line1} />
+                <TextInput required value={form.address_line1} onChange={set("address_line1")} onBlur={blur("address_line1")}
+                  maxLength={LIMITS.addressLine1} invalid={!!fieldErrors.address_line1} />
               </Field>
             </div>
             <div className="sm:col-span-2">
               <Field label="Address line 2 (optional)" error={fieldErrors.address_line2}>
-                <TextInput value={form.address_line2} onChange={set("address_line2")}
-                  maxLength={255} invalid={!!fieldErrors.address_line2} />
+                <TextInput value={form.address_line2} onChange={set("address_line2")} onBlur={blur("address_line2")}
+                  maxLength={LIMITS.addressLine2} invalid={!!fieldErrors.address_line2} />
               </Field>
             </div>
             <Field label="City" error={fieldErrors.city}>
-              <TextInput required value={form.city} onChange={set("city")} maxLength={100}
+              <TextInput required value={form.city} onChange={set("city")} onBlur={blur("city")} maxLength={LIMITS.city}
                 invalid={!!fieldErrors.city} />
             </Field>
             <Field label="State" error={fieldErrors.state}>
-              <TextInput required value={form.state} onChange={set("state")} maxLength={100}
+              <TextInput required value={form.state} onChange={set("state")} onBlur={blur("state")} maxLength={LIMITS.state}
                 invalid={!!fieldErrors.state} />
             </Field>
             <Field label="Postal code" error={fieldErrors.postal_code}>
-              <TextInput required value={form.postal_code} onChange={set("postal_code")} maxLength={20}
-                invalid={!!fieldErrors.postal_code} />
+              <TextInput required value={form.postal_code} onChange={set("postal_code")} onBlur={blur("postal_code")}
+                maxLength={LIMITS.postalCode} invalid={!!fieldErrors.postal_code} />
             </Field>
             <Field label="Country" error={fieldErrors.country}>
               <CountrySelect value={form.country} onChange={set("country")}
@@ -208,33 +234,37 @@ export default function ApplicationFormPage() {
               </Select>
             </Field>
             <Field label="ID number" error={fieldErrors.id_number}>
-              <TextInput required value={form.id_number} onChange={set("id_number")} maxLength={100}
+              <TextInput required value={form.id_number} onChange={set("id_number")} onBlur={blur("id_number")} maxLength={LIMITS.idNumber}
                 invalid={!!fieldErrors.id_number} />
             </Field>
-            <Field label="ID expiry (optional)" error={fieldErrors.id_expiry}>
+            <Field
+              label="ID expiry (optional)"
+              error={fieldErrors.id_expiry}
+              hint="Leave blank if the ID has no expiry date."
+            >
               <TextInput type="date" value={form.id_expiry ?? ""} onChange={set("id_expiry")}
                 invalid={!!fieldErrors.id_expiry} />
+              {expiryIsPast && (
+                <span className="mt-1 flex items-start gap-1 text-xs text-amber-600" role="status">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.5h.01M10.34 3.94 2.25 18a1.5 1.5 0 0 0 1.29 2.25h16.92A1.5 1.5 0 0 0 21.75 18L13.66 3.94a1.5 1.5 0 0 0-2.32 0Z" />
+                  </svg>
+                  This ID has expired — update the expiry before submitting for review.
+                </span>
+              )}
             </Field>
           </div>
         </section>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <Alert variant="error">{error}</Alert>}
 
         <div className="flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={() => navigate("/")}
-            className="rounded border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
+          <Button type="button" variant="secondary" onClick={() => navigate("/")}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" loading={busy}>
             {busy ? "Saving…" : id ? "Save changes" : "Save draft"}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

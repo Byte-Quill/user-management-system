@@ -5,14 +5,7 @@ from django.conf import settings
 from django.db import models
 
 class EmailLog(models.Model):
-    """Append-only record of transactional emails sent (verification, reset).
-
-    Powers the CEO analytics "email activity" panel. Rows are written by
-    ``kyc.otp._send_otp_email`` after each send attempt, so both successes
-    and failures are visible. The log is deliberately separate from the OTP
-    rows themselves: OTPs are purged a day after expiry, but the activity
-    history is retained for reporting.
-    """
+    """Append-only record of transactional emails sent (verification, reset)."""
 
     class Purpose(models.TextChoices):
         VERIFY_EMAIL = "verify_email", "Verify Email"

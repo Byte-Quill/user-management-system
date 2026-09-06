@@ -6,24 +6,18 @@ import phonenumbers
 from phonenumbers import NumberParseException
 from rest_framework import serializers
 
-# Mirrors the SPA's validation.ts so the API is the source of truth.
+
 DOB_MIN = date(1900, 1, 1)
 
-# Unicode letters plus spaces, hyphens, apostrophes, periods ("O'Brien").
+
 NAME_CHARS_RE = re.compile(r"^(?:[^\W\d_]|[ \-'.])+$", re.UNICODE)
 
-# Phone numbers validated/normalised with libphonenumber, the same metadata
-# the SPA's country-code picker uses.
+
 DEFAULT_PHONE_REGION = "IN"
 
 
 def normalize_phone(value: str) -> str:
-    """Canonical E164 form (e.g. "+919876543210") via libphonenumber.
-
-    One canonical form is what makes the unique constraint catch duplicate
-    numbers entered in different formats. Raises ``ValueError`` for invalid
-    input.
-    """
+    """Canonical E164 form (e.g. "+919876543210") via libphonenumber."""
     try:
         parsed = phonenumbers.parse(value.strip(), DEFAULT_PHONE_REGION)
     except NumberParseException as exc:
@@ -34,11 +28,7 @@ def normalize_phone(value: str) -> str:
 
 
 def legacy_phone_key(value: str) -> str:
-    """Pre-libphonenumber canonical form, kept for backwards-compatible lookups.
-
-    Rows created before the libphonenumber switch may store bare digits;
-    login still resolves those so existing accounts are never locked out.
-    """
+    """Pre-libphonenumber canonical form, kept for backwards-compatible lookups."""
     digits = re.sub(r"\D", "", value)
     return f"+{digits}" if value.strip().startswith("+") else digits
 
@@ -64,16 +54,12 @@ def validate_person_name(value: str, label: str, required: bool = True) -> str:
         raise serializers.ValidationError(
             f"{label} may only contain letters, spaces, hyphens, apostrophes and periods."
         )
-    return value
+
+    return value[0].upper() + value[1:]
 
 
 class PasswordField(serializers.CharField):
-    """Write-only password field for registration.
-
-    The full AUTH_PASSWORD_VALIDATORS policy is applied in
-    ``RegisterSerializer.validate`` (with a user instance, so the
-    attribute-similarity validator can compare against email/username).
-    """
+    """Write-only password field for registration."""
 
     def __init__(self, **kwargs):
         kwargs.setdefault("write_only", True)

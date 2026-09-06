@@ -1,14 +1,4 @@
-/**
- * Disposable / temporary email domain blocklist.
- *
- * AUTO-GENERATED from the `disposable-email-domains` PyPI package (the same
- * list the backend uses in `kyc/email_domains.py`). Do not edit by hand —
- * regenerate with: cd backend && .venv/bin/python scripts/gen_disposable_emails.py
- *
- * Mirrors the server-side rule for immediate registration feedback; the
- * backend remains the source of truth. Matching is on the exact domain part
- * of the address, case-insensitively.
- */
+
 
 export const DISPOSABLE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
   "0-mail.com",
@@ -8214,7 +8204,7 @@ export const DISPOSABLE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
   "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.ooguy.com",
 ]);
 
-/** True when the address's domain is a known disposable provider. */
+
 export function isDisposableEmail(email: string): boolean {
   const at = email.lastIndexOf("@");
   if (at < 0) return false;

@@ -24,8 +24,7 @@ class AdminTests(TestCase):
         self.client.force_login(self.admin)
 
     def test_user_add_form_includes_email(self):
-        # USERNAME_FIELD is email, so the stock add form (username only)
-        # would create users that can never log in.
+
         res = self.client.post(
             "/admin/kyc/user/add/",
             {
@@ -36,7 +35,7 @@ class AdminTests(TestCase):
                 "email": "newuser@kyc.local",
             },
         )
-        self.assertEqual(res.status_code, 302)  # success redirects to change page
+        self.assertEqual(res.status_code, 302)
         user = User.objects.get(email="newuser@kyc.local")
         self.assertEqual(user.username, "newuser")
         self.assertTrue(user.check_password("Str0ngPass!2026"))
@@ -113,7 +112,7 @@ class AdminTests(TestCase):
         entry = AuditLog.objects.create(
             application=app, actor=applicant, action=AuditLog.Action.CREATED
         )
-        # No add form, and the detail page is view-only (no change permission).
+
         self.assertEqual(self.client.get("/admin/kyc/auditlog/add/").status_code, 403)
         res = self.client.get(f"/admin/kyc/auditlog/{entry.pk}/change/")
         self.assertEqual(res.status_code, 200)
@@ -147,6 +146,3 @@ class AdminTests(TestCase):
         options = set(res.context["adminform"].form.fields["reviewer"].queryset)
         self.assertIn(reviewer, options)
         self.assertNotIn(applicant, options)
-
-
-

@@ -3,15 +3,12 @@ import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
 import * as api from "@/lib/api";
-import { validateEmail, validateOtp } from "@/lib/validation";
+import Alert from "@/components/ui/Alert";
+import { OTP_LENGTH, validateEmail, validateOtp } from "@/lib/validation";
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
-/**
- * Signup email verification: enter the 6-digit OTP that was emailed after
- * registration. Reached from RegisterPage (email prefilled via router state)
- * or from the login page when a login is blocked with code email_not_verified.
- */
+
 export default function VerifyEmailPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -43,7 +40,7 @@ export default function VerifyEmailPage() {
     setBusy(true);
     try {
       await api.verifyEmail(email.trim(), code.trim());
-      // Verified: straight to login with the email prefilled.
+
       navigate("/login", { state: { email: email.trim(), verified: true } });
     } catch (err) {
       setError(api.errorMessage(err, "Invalid or expired code."));
@@ -98,15 +95,15 @@ export default function VerifyEmailPage() {
               autoFocus
               inputMode="numeric"
               autoComplete="one-time-code"
-              maxLength={6}
+              maxLength={OTP_LENGTH}
               placeholder="123456"
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
               className="w-full rounded border border-slate-300 px-3 py-2 text-center text-lg tracking-[0.5em] focus:border-blue-500 focus:outline-none"
             />
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {notice && <p className="text-sm text-green-700">{notice}</p>}
+          {error && <Alert variant="error">{error}</Alert>}
+          {notice && <Alert variant="success">{notice}</Alert>}
           <button
             type="submit"
             disabled={busy}

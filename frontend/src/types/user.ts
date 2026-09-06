@@ -4,17 +4,17 @@ export type Gender = "male" | "female" | "other" | "prefer_not_to_say" | "";
 
 export interface User {
   id: number;
-  /** Null for phone-only accounts. */
+
   email: string | null;
-  /** Auto-generated public User ID (e.g. PHIN-8F3K2A); never user-chosen. */
+
   username: string;
   first_name: string;
   middle_name: string;
   last_name: string;
-  /** Canonical phone (+digits); null for Google-provisioned accounts. */
+
   phone: string | null;
   gender: Gender;
-  /** Optional profile details collected at registration (may be blank). */
+
   date_of_birth: string | null;
   nationality: string;
   address_line1: string;
@@ -24,7 +24,7 @@ export interface User {
   postal_code: string;
   country: string;
   role: Role;
-  /** False until the signup OTP is confirmed; password login is blocked. */
+
   email_verified: boolean;
 }
 

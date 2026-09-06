@@ -21,8 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        // Access tokens live in memory, so a reload loses them. Ask the
-        // backend for a fresh one via the HttpOnly refresh cookie.
+
         const refreshed = await api.refreshAccess();
         if (refreshed) {
           setUser(await api.fetchMe());
@@ -38,14 +37,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void initializeAuth();
   }, []);
 
-  // Shared by password and Google login: store the access token, load the
-  // profile, and roll back to logged-out if the profile fetch fails.
   const startSession = useCallback(async (tokens: { access: string }) => {
     api.setTokens(tokens.access);
     try {
       setUser(await api.fetchMe());
     } catch (err) {
-      // Token issued but profile fetch failed: don't leave a half-session.
+
       api.clearTokens();
       throw err;
     }
@@ -62,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
-    // Best-effort server-side blacklist + cookie clear; always clear locally.
+
     void api.logout().catch((err) => {
       console.error("Logout blacklist failed:", err);
     });

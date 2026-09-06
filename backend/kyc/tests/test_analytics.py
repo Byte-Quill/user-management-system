@@ -56,7 +56,7 @@ class AnalyticsTests(APITestCase):
         self.assertEqual(res.data["kpis"]["submitted_last_30_days"], 5)
         self.assertEqual(res.data["kpis"]["users"], 2)
         self.assertEqual(res.data["kpis"]["pending_review"], 1)
-        self.assertEqual(res.data["approval_rate"], 75.0)  # 3 of 4 decided
+        self.assertEqual(res.data["approval_rate"], 75.0)
         self.assertEqual(res.data["pipeline"]["approved"], 3)
         self.assertEqual(res.data["pipeline"]["draft"], 0)
         self.assertEqual(
@@ -72,7 +72,6 @@ class AnalyticsTests(APITestCase):
         res = self.client.get("/api/analytics/")
         self.assertIsNone(res.data["approval_rate"])
         self.assertEqual(res.data["kpis"]["total_applications"], 1)
-
 
 
 @FAST_PASSWORD_HASHERS
@@ -93,6 +92,3 @@ class EmailLogTests(APITestCase):
         log = EmailLog.objects.get()
         self.assertEqual(log.status, EmailLog.Status.FAILED)
         self.assertEqual(log.purpose, EmailLog.Purpose.RESET_PASSWORD)
-
-
-

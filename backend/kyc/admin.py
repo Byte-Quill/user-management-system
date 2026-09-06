@@ -6,10 +6,7 @@ from .models import AuditLog, Document, EmailLog, KYCApplication, User, log_acti
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    # The stock add form only asks for username + password, but this model
-    # authenticates by email (USERNAME_FIELD = "email", unique). Without an
-    # email field on the add form, admin-created users could never log in and
-    # a second one would violate the unique constraint on the empty email.
+
     add_fieldsets = BaseUserAdmin.add_fieldsets + (
         (None, {"classes": ("wide",), "fields": ("email", "phone", "gender")}),
     )
@@ -33,8 +30,7 @@ class UserAdmin(BaseUserAdmin):
             },
         ),
         ("Role", {"fields": ("role",)}),
-        # Staff can verify manually when a user cannot complete the OTP flow
-        # (e.g. lost inbox access).
+
         ("Email verification", {"fields": ("email_verified",)}),
     )
     list_display = ("email", "username", "phone", "role", "email_verified", "is_staff")
@@ -42,11 +38,7 @@ class UserAdmin(BaseUserAdmin):
 
 
 class DocumentInline(admin.TabularInline):
-    """Read-only view of an application's documents.
-
-    Uploads and removals must go through the API so that content validation,
-    file cleanup, and the audit trail are applied consistently.
-    """
+    """Read-only view of an application's documents."""
 
     model = Document
     extra = 0
@@ -72,7 +64,7 @@ class KYCApplicationAdmin(admin.ModelAdmin):
     inlines = [DocumentInline]
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        # Only admin/super-admin users may be assigned as the reviewer.
+
         if db_field.name == "reviewer":
             kwargs["queryset"] = User.objects.filter(
                 role__in=(User.Role.ADMIN, User.Role.SUPER_ADMIN)
@@ -89,7 +81,7 @@ class KYCApplicationAdmin(admin.ModelAdmin):
             )
         super().save_model(request, obj, form, change)
         if not change:
-            # Keep the audit trail complete for admin-created applications.
+
             log_action(
                 obj,
                 request.user,
@@ -97,7 +89,7 @@ class KYCApplicationAdmin(admin.ModelAdmin):
                 detail="Created via Django admin",
             )
         elif old_status is not None and old_status != obj.status:
-            # Keep the audit trail in sync when staff change state outside the API.
+
             log_action(
                 obj,
                 request.user,
@@ -116,15 +108,15 @@ class AuditLogAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
     def has_add_permission(self, request):
-        # The audit trail is append-only and written by the application logic.
+
         return False
 
     def has_change_permission(self, request, obj=None):
-        # View-only: renders the detail page without Save buttons.
+
         return False
 
     def has_delete_permission(self, request, obj=None):
-        # The audit trail is append-only.
+
         return False
 
 
@@ -138,7 +130,7 @@ class EmailLogAdmin(admin.ModelAdmin):
     ordering = ("-created_at",)
 
     def has_add_permission(self, request):
-        # Written only by the OTP send path.
+
         return False
 
     def has_change_permission(self, request, obj=None):

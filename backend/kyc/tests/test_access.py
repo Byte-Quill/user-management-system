@@ -12,11 +12,10 @@ User = get_user_model()
 
 @FAST_PASSWORD_HASHERS
 class RoleAccessTests(APITestCase):
-    """Each role reaches only its own surface: review queue, user management,
-    analytics."""
+    """Each role reaches only its own surface: review queue, user management,."""
 
     def setUp(self):
-        cache.clear()  # write throttles are user-scoped; keep tests independent
+        cache.clear()
         self.applicant = make_user("app@kyc.local", User.Role.APPLICANT)
         self.admin = make_user("admin@kyc.local", User.Role.ADMIN)
         self.super_admin = make_user("super@kyc.local", User.Role.SUPER_ADMIN)
@@ -86,6 +85,3 @@ class RoleAccessTests(APITestCase):
             self.assertEqual(
                 self.client.get(url).status_code, status.HTTP_401_UNAUTHORIZED, url
             )
-
-
-

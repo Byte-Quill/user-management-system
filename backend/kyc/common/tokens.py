@@ -1,10 +1,10 @@
 """Stateless signed tokens for document downloads (HMAC via TimestampSigner)."""
 from django.core.signing import TimestampSigner
 
-# statelessly (no DB/cache lookup) and forgeable only by the secret holder.
+
 DOWNLOAD_TOKEN_SALT = "kyc.document-download"
-# Short TTL: tokens travel in URLs (logs, browser history), so keep the
-# replay window small.
+
+
 DOWNLOAD_TOKEN_MAX_AGE = 900
 
 

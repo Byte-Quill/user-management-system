@@ -4,6 +4,8 @@ import type { ApplicationPayload } from "@/types";
 import {
   ALLOWED_FILE_EXTENSIONS,
   MAX_FILE_SIZE_MB,
+  capitalizeFirst,
+  capitalizeWords,
   validateApplication,
   validateConfirmPassword,
   validateDateOfBirth,
@@ -25,7 +27,7 @@ import {
   validateUploadFile,
 } from "@/lib/validation";
 
-/** A payload that passes every validator (used as the base for mutation tests). */
+
 const validApplication = (): ApplicationPayload => ({
   full_name: "Ada Lovelace",
   date_of_birth: "1990-01-31",
@@ -61,7 +63,7 @@ describe("validateRegistrationEmail", () => {
   });
 
   test("rejects disposable/temp-mail domains", () => {
-    // mailinator.com is on the generated blocklist.
+
     const msg = validateRegistrationEmail("user@mailinator.com");
     expect(msg).toContain("Disposable or temporary email addresses are not allowed");
   });
@@ -74,7 +76,7 @@ describe("validateRegistrationEmail", () => {
 describe("validateName", () => {
   test("accepts letters with spaces, hyphens, apostrophes, periods", () => {
     expect(validateName("Jean-Luc O'Neill Jr.", "Full name")).toBeNull();
-    expect(validateName("李明", "Full name")).toBeNull(); // Unicode letters
+    expect(validateName("李明", "Full name")).toBeNull();
   });
 
   test("enforces required, length and charset rules", () => {
@@ -88,6 +90,33 @@ describe("validateName", () => {
 
   test("optional names may be blank", () => {
     expect(validateName("", "Middle name", false)).toBeNull();
+  });
+
+  test("names must start with a capital letter", () => {
+    expect(validateName("john", "First name")).toBe(
+      "First name must start with a capital letter."
+    );
+    expect(validateName("john doe", "Full name")).toContain("capital letter");
+    expect(validateName("John", "First name")).toBeNull();
+    expect(validateName("McDonald", "Last name")).toBeNull();
+
+    expect(validateName("李明", "Full name")).toBeNull();
+  });
+});
+
+describe("capitalizeFirst / capitalizeWords", () => {
+  test("capitalizeFirst uppercases only the first letter", () => {
+    expect(capitalizeFirst("jane")).toBe("Jane");
+    expect(capitalizeFirst("Jane")).toBe("Jane");
+    expect(capitalizeFirst("李明")).toBe("李明");
+    expect(capitalizeFirst("")).toBe("");
+  });
+
+  test("capitalizeWords uppercases the first letter of every word", () => {
+    expect(capitalizeWords("john doe")).toBe("John Doe");
+    expect(capitalizeWords("jean-luc o'neill")).toBe("Jean-Luc O'Neill");
+    expect(capitalizeWords("John")).toBe("John");
+    expect(capitalizeWords("")).toBe("");
   });
 });
 
@@ -175,8 +204,8 @@ describe("phone validators", () => {
   });
 
   test("strict E.164 validator uses libphonenumber per-country rules", () => {
-    expect(validateE164Phone("+919876543210")).toBeNull(); // valid IN mobile
-    expect(validateE164Phone("+91123")).toContain("valid phone number"); // too short for IN
+    expect(validateE164Phone("+919876543210")).toBeNull();
+    expect(validateE164Phone("+91123")).toContain("valid phone number");
   });
 });
 
@@ -210,7 +239,7 @@ describe("validateUploadFile", () => {
 
   test("accepts an allowed extension within the size cap", () => {
     expect(validateUploadFile(makeFile("scan.pdf", 1024))).toBeNull();
-    expect(validateUploadFile(makeFile("photo.JPG", 1024))).toBeNull(); // case-insensitive
+    expect(validateUploadFile(makeFile("photo.JPG", 1024))).toBeNull();
   });
 
   test("rejects disallowed extensions", () => {
@@ -247,13 +276,13 @@ describe("validateApplication", () => {
     const form = validApplication();
     form.full_name = "";
     form.city = "";
-    // Simulate tampered client state / untrusted input for a typed union field.
+
     (form as { id_type: string }).id_type = "library_card";
     const errors = validateApplication(form);
     expect(errors.full_name).toBe("Full name is required.");
     expect(errors.city).toBe("City is required.");
     expect(errors.id_type).toBe("Select a valid ID type.");
-    // Untouched fields stay clean.
+
     expect(errors.nationality).toBeUndefined();
     expect(errors.phone).toBeUndefined();
   });

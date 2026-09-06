@@ -17,6 +17,24 @@ class AuthTests(APITestCase):
     def setUp(self):
         cache.clear()
 
+    def test_names_are_capitalized(self):
+        """first/middle/last names are stored with an initial capital."""
+        res = self.client.post(
+            "/api/auth/register/",
+            register_payload(
+                "caps@kyc.local",
+                phone="+919876543297",
+                first_name="jane",
+                middle_name="q",
+                last_name="doe",
+            ),
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email="caps@kyc.local")
+        self.assertEqual(user.first_name, "Jane")
+        self.assertEqual(user.middle_name, "Q")
+        self.assertEqual(user.last_name, "Doe")
+
     def test_register_and_login(self):
         res = self.client.post(
             "/api/auth/register/",
@@ -24,7 +42,6 @@ class AuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
-        # Hard verification: login is refused until the OTP is confirmed.
         res = self.client.post(
             "/api/auth/token/", {"email": "new@kyc.local", "password": "Str0ngPass!"}
         )
@@ -42,14 +59,14 @@ class AuthTests(APITestCase):
     def test_register_phone_only_and_login_with_phone(self):
         """A phone-only account (no email) is created and can log in immediately."""
         payload = register_payload("ignored@kyc.local", phone="+919876500099")
-        payload.pop("email")  # omit email entirely (matches the SPA payload)
+        payload.pop("email")
         res = self.client.post("/api/auth/register/", payload)
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(res.data["email"])
 
         user = User.objects.get(phone="+919876500099")
         self.assertIsNone(user.email)
-        # No email to verify: no OTP email is sent and login is not gated.
+
         self.assertEqual(len(mail.outbox), 0)
 
         res = self.client.post(
@@ -61,12 +78,11 @@ class AuthTests(APITestCase):
     def test_register_email_only_and_login(self):
         """An email-only account (no phone) still requires OTP verification."""
         payload = register_payload("emailonly@kyc.local")
-        payload.pop("phone")  # omit phone entirely (matches the SPA payload)
+        payload.pop("phone")
         res = self.client.post("/api/auth/register/", payload)
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(res.data["phone"])
 
-        # Email present → OTP gate applies until verified.
         res = self.client.post(
             "/api/auth/token/", {"email": "emailonly@kyc.local", "password": "Str0ngPass!"}
         )
@@ -104,7 +120,7 @@ class AuthTests(APITestCase):
 
     def test_register_rejects_duplicate_phone_including_format_variants(self):
         self.client.post("/api/auth/register/", register_payload("p1@kyc.local"))
-        # Same number, different formatting: normalization must catch it.
+
         res = self.client.post(
             "/api/auth/register/",
             register_payload("p2@kyc.local", phone="+91 98765 00001"),
@@ -114,7 +130,7 @@ class AuthTests(APITestCase):
 
     def test_register_rejects_invalid_fields(self):
         cases = {
-            "phone": register_payload("bad1@kyc.local", phone="123"),  # < 7 digits
+            "phone": register_payload("bad1@kyc.local", phone="123"),
             "gender": register_payload("bad2@kyc.local", gender="robot"),
             "first_name": register_payload("bad3@kyc.local", first_name="Jane123"),
             "last_name": register_payload("bad4@kyc.local", last_name=""),
@@ -125,8 +141,7 @@ class AuthTests(APITestCase):
             self.assertIn(field, res.data, field)
 
     def test_register_rejects_disposable_email(self):
-        """Temp/burner mail providers are blocked at signup (KYC needs a
-        lasting inbox). The domain check is case-insensitive."""
+        """Temp/burner mail providers are blocked at signup (KYC needs a."""
         cases = [
             ("user@mailinator.com", "+919876500011"),
             ("user@YOPMAIL.com", "+919876500012"),
@@ -155,7 +170,7 @@ class AuthTests(APITestCase):
         self.assertTrue(is_disposable_email("a@GuerrillaMail.NET"))
         self.assertFalse(is_disposable_email("a@gmail.com"))
         self.assertFalse(is_disposable_email("a@kyc.local"))
-        # Malformed input (no @) is not this helper's concern.
+
         self.assertFalse(is_disposable_email("not-an-email"))
 
     def test_register_accepts_optional_profile_fields(self):
@@ -180,7 +195,7 @@ class AuthTests(APITestCase):
         self.assertEqual(user.address_line1, "1 Main Street")
         self.assertEqual(user.city, "Pune")
         self.assertEqual(user.country, "India")
-        # /auth/me/ exposes them so the application form can prefill.
+
         verify_via_api(self.client, "profile@kyc.local")
         res = self.client.post(
             "/api/auth/token/", {"email": "profile@kyc.local", "password": "Str0ngPass!"}
@@ -250,7 +265,7 @@ class AuthTests(APITestCase):
             {"email": "unknown@kyc.local", "password": "wrong-password"},
         )
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        # RFC 6585: throttled responses tell clients when they can retry.
+
         self.assertGreater(int(res.headers["Retry-After"]), 0)
 
     @mock.patch.object(LoginIPThrottle, "THROTTLE_RATES", {"login_ip": "3/hour"})
@@ -285,9 +300,7 @@ class AuthTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     def test_register_unique_constraint_race_returns_400_not_500(self):
-        """A concurrent registration can pass the serializer's existence
-        checks and lose to the DB unique constraint; the API must translate
-        that into the same 400, never a 500."""
+        """A concurrent registration can pass the serializer's existence."""
         from django.db import IntegrityError
 
         with mock.patch.object(
@@ -299,8 +312,7 @@ class AuthTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_register_lowercases_email(self):
-        """Login/Google matching is case-insensitive, so stored emails must
-        be lowercase or two accounts can differ only by email case."""
+        """Login/Google matching is case-insensitive, so stored emails must."""
         res = self.client.post(
             "/api/auth/register/",
             register_payload("MiXeD@KYC.local", phone="+919876509991"),
@@ -311,9 +323,9 @@ class AuthTests(APITestCase):
     def test_register_rejects_weak_passwords(self):
         """AUTH_PASSWORD_VALIDATORS must be enforced server-side, not just in the SPA."""
         weak_passwords = [
-            "12345678",       # all-numeric (NumericPasswordValidator)
-            "password",       # too common (CommonPasswordValidator)
-            "short",          # below min length
+            "12345678",
+            "password",
+            "short",
         ]
         for i, weak in enumerate(weak_passwords):
             res = self.client.post(
@@ -328,7 +340,7 @@ class AuthTests(APITestCase):
             "/api/auth/register/",
             register_payload(
                 "janedoe@kyc.local",
-                password="Janedoe2026",  # too similar to email/name
+                password="Janedoe2026",
             ),
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
@@ -344,7 +356,7 @@ class AuthTests(APITestCase):
             {"email": "new@kyc.local", "password": "Passw0rd!"},
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        # Refresh token must NOT be exposed in the response body.
+
         self.assertNotIn("refresh", res.data)
         self.assertIn("refresh_token", res.cookies)
         cookie = res.cookies["refresh_token"]
@@ -361,7 +373,7 @@ class AuthTests(APITestCase):
         res = self.client.post("/api/auth/token/refresh/")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("access", res.data)
-        # Rotation: the cookie value must change.
+
         new_cookie = self.client.cookies["refresh_token"].value
         self.assertNotEqual(old_cookie, new_cookie)
 
@@ -378,8 +390,7 @@ class AuthTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_login_rejects_disallowed_origin(self):
-        """Login CSRF: a cross-site form must not be able to log the victim
-        into an attacker's account (the response SETS the refresh cookie)."""
+        """Login CSRF: a cross-site form must not be able to log the victim."""
         make_user("new@kyc.local", User.Role.APPLICANT)
         res = self.client.post(
             "/api/auth/token/",
@@ -389,8 +400,7 @@ class AuthTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         self.assertNotIn("refresh_token", res.cookies)
     def test_throttle_ident_uses_last_xff_entry(self):
-        """NUM_PROXIES=1: the trusted proxy appends the real client IP last,
-        so a spoofed leading entry must not change the throttle identity."""
+        """NUM_PROXIES=1: the trusted proxy appends the real client IP last,."""
         factory = APIRequestFactory()
         throttle = LoginIPThrottle()
         spoofed = throttle.get_ident(
@@ -399,16 +409,13 @@ class AuthTests(APITestCase):
         clean = throttle.get_ident(Request(factory.get("/", REMOTE_ADDR="10.0.0.1")))
         self.assertEqual(spoofed, clean)
     def test_refresh_allows_same_origin_on_non_standard_port(self):
-        """Browsers include non-standard ports in Origin. With the port
-        preserved in the Host header (nginx $http_host), the same-origin
-        refresh must be accepted."""
+        """Browsers include non-standard ports in Origin. With the port."""
         make_user("new@kyc.local", User.Role.APPLICANT)
         self.client.post(
             "/api/auth/token/",
             {"email": "new@kyc.local", "password": "Passw0rd!"},
         )
-        # SERVER_PORT makes the test client send Host: testserver:8080, so
-        # Origin and Host both carry the non-standard port.
+
         res = self.client.post(
             "/api/auth/token/refresh/",
             HTTP_ORIGIN="http://testserver:8080",
@@ -424,13 +431,12 @@ class AuthTests(APITestCase):
         )
         res = self.client.post("/api/auth/logout/")
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
-        # Cookie cleared -> refresh must now fail.
+
         res = self.client.post("/api/auth/token/refresh/")
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_logout_rejects_disallowed_origin(self):
-        """Logout CSRF: a cross-site POST must not blacklist the victim's
-        refresh token (forced logout / session destruction)."""
+        """Logout CSRF: a cross-site POST must not blacklist the victim's."""
         make_user("new@kyc.local", User.Role.APPLICANT)
         self.client.post(
             "/api/auth/token/",
@@ -438,14 +444,12 @@ class AuthTests(APITestCase):
         )
         res = self.client.post("/api/auth/logout/", HTTP_ORIGIN="https://evil.example.com")
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
-        # Session must still be alive.
+
         res = self.client.post("/api/auth/token/refresh/")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
     def test_blacklisted_refresh_token_cannot_be_reused(self):
-        """A refresh token captured before logout (e.g. exfiltrated via logs
-        or a compromised client) must stop working once the session is
-        blacklisted — replay after logout is a session-hijack vector."""
+        """A refresh token captured before logout (e.g. exfiltrated via logs."""
         make_user("new@kyc.local", User.Role.APPLICANT)
         self.client.post(
             "/api/auth/token/",
@@ -454,14 +458,11 @@ class AuthTests(APITestCase):
         stolen = self.client.cookies["refresh_token"].value
         self.client.post("/api/auth/logout/")
 
-        # Replay the pre-logout token directly in the body.
         res = self.client.post("/api/auth/token/refresh/", {"refresh": stolen})
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_rotated_refresh_token_is_blacklisted(self):
-        """BLACKLIST_AFTER_ROTATION: after a refresh rotates the token, the
-        old value must be unusable. If it were not, a stolen refresh token
-        would stay valid for its full 7-day lifetime despite rotation."""
+        """BLACKLIST_AFTER_ROTATION: after a refresh rotates the token, the."""
         make_user("new@kyc.local", User.Role.APPLICANT)
         self.client.post(
             "/api/auth/token/",
@@ -472,13 +473,10 @@ class AuthTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertNotEqual(self.client.cookies["refresh_token"].value, old)
 
-        # Drop the rotated cookie so the replay goes through the body
-        # fallback (the view prefers the cookie when present).
         del self.client.cookies["refresh_token"]
-        # The pre-rotation token must now be rejected.
+
         res = self.client.post("/api/auth/token/refresh/", {"refresh": old})
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
-
 
 
 @FAST_PASSWORD_HASHERS
@@ -499,7 +497,6 @@ class TokenRevocationTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
-        # Reset the password via the OTP flow.
         self.client.post("/api/auth/password-reset/request/", {"email": "revoke@kyc.local"})
         res = self.client.post(
             "/api/auth/password-reset/confirm/",
@@ -511,20 +508,45 @@ class TokenRevocationTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
-        # The pre-reset access token must now be rejected...
         res = self.client.get(
             "/api/auth/me/", HTTP_AUTHORIZATION=f"Bearer {old_access}"
         )
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
-        # ...and so must the pre-reset refresh cookie (a stolen refresh token
-        # cannot mint new access tokens after the victim resets).
+
         res = self.client.post("/api/auth/token/refresh/")
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
-        # The new password works.
+
         res = self.client.post(
             "/api/auth/token/", {"email": "revoke@kyc.local", "password": "N3wSecret!"}
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
 
+@FAST_PASSWORD_HASHERS
+class UserIDCollisionRetryTests(APITestCase):
+    """A public-ID collision retries instead of returning a "duplicate" error."""
 
+    def setUp(self):
+        cache.clear()
+
+    def test_username_collision_retries_with_new_id(self):
+
+        make_user("taken@kyc.local", User.Role.APPLICANT)
+        with mock.patch(
+            "kyc.serializers.auth.generate_user_id",
+            side_effect=["taken", "FRESHID99"],
+        ):
+            res = self.client.post(
+                "/api/auth/register/", register_payload("fresh@kyc.local", phone="+919876543299")
+            )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(User.objects.get(email="fresh@kyc.local").username, "FRESHID99")
+
+    def test_non_username_integrity_error_still_maps_to_400(self):
+        """Email duplicates that beat the pre-check still return the friendly 400."""
+        make_user("dupe@kyc.local", User.Role.APPLICANT)
+        res = self.client.post(
+            "/api/auth/register/", register_payload("dupe@kyc.local", phone="+919876543298")
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already exists", str(res.data))

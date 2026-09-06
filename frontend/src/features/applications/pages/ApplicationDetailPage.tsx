@@ -10,6 +10,9 @@ import {
 } from "@/features/applications/components/ApplicationSections";
 import Pagination from "@/components/ui/Pagination";
 import StatusBadge from "@/components/ui/StatusBadge";
+import Alert from "@/components/ui/Alert";
+import Button from "@/components/ui/Button";
+import Modal from "@/components/ui/Modal";
 import type { AuditEntry, KYCApplication } from "@/types";
 import { validateUploadFile } from "@/lib/validation";
 
@@ -36,6 +39,7 @@ export default function ApplicationDetailPage() {
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmingSubmit, setConfirmingSubmit] = useState(false);
   const loadRequestRef = useRef(0);
   const auditRequestRef = useRef(0);
 
@@ -70,8 +74,7 @@ export default function ApplicationDetailPage() {
         setAuditHasPrev(!!trail.previous);
       } catch {
         if (requestId !== auditRequestRef.current) return;
-        // Scoped to the audit section: a trail failure must not wipe the
-        // whole application view.
+
         setAuditError("Failed to load the audit trail.");
       }
     },
@@ -84,29 +87,24 @@ export default function ApplicationDetailPage() {
     load();
   }, [load]);
 
-  // Fetch page 1 on load and on id change.
   useEffect(() => {
     setAuditPage(1);
     loadAudit(1);
   }, [loadAudit]);
 
-  // Fetch other pages on user pagination only; loadAudit is intentionally
-  // not a dependency so this never re-runs when its identity changes.
   useEffect(() => {
     if (auditPage === 1) return;
     loadAudit(auditPage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auditPage]);
 
-  if (error) return <p className="text-red-600">{error}</p>;
-  if (!app) return <p className="text-slate-500">Loading…</p>;
+  if (error) return <Alert variant="error">{error}</Alert>;
+  if (!app) return <p className="p-8 text-center text-slate-500">Loading…</p>;
 
   const editable = app.status === "draft" || app.status === "resubmission_requested";
-  // Compare by applicant ID, not email: phone-only accounts have null email.
+
   const isOwner = user?.id === app.applicant_id;
 
-  // Shared shape for upload/submit/remove: run the mutation, show a notice,
-  // refresh app + audit, and surface failures in the action banner.
   const runAction = async (
     action: () => Promise<unknown>,
     successNotice: string,
@@ -152,6 +150,11 @@ export default function ApplicationDetailPage() {
       "Submit failed. Please try again."
     );
 
+  const confirmSubmit = async () => {
+    await submit();
+    setConfirmingSubmit(false);
+  };
+
   const removeDoc = (docId: string) =>
     runAction(
       () => api.deleteDocument(id!, docId),
@@ -171,24 +174,18 @@ export default function ApplicationDetailPage() {
         <StatusBadge status={app.status} />
       </div>
 
-      {notice && (
-        <div className="rounded bg-blue-50 px-4 py-2 text-sm text-blue-800">{notice}</div>
-      )}
-      {actionError && (
-        <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800">
-          {actionError}
-        </div>
-      )}
+      {notice && <Alert variant="success">{notice}</Alert>}
+      {actionError && <Alert variant="error">{actionError}</Alert>}
 
       {app.status === "resubmission_requested" && isOwner && (
-        <div className="rounded border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-900">
+        <Alert variant="warning">
           <strong>Resubmission requested.</strong> {app.review_notes}
-        </div>
+        </Alert>
       )}
       {app.status === "rejected" && (
-        <div className="rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+        <Alert variant="error">
           <strong>Rejected.</strong> {app.review_notes}
-        </div>
+        </Alert>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -214,12 +211,12 @@ export default function ApplicationDetailPage() {
           />
 
           {editable && isOwner && (
-            <div className="space-y-3 border-t pt-4">
-              <div className="flex gap-2">
+            <div className="space-y-3 border-t border-slate-100 pt-4">
+              <div className="flex flex-wrap gap-2">
                 <select
                   value={docType}
                   onChange={(e) => setDocType(e.target.value)}
-                  className="rounded border border-slate-300 px-2 py-1 text-sm"
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
                   {DOC_TYPES.map((d) => (
                     <option key={d.value} value={d.value}>
@@ -235,34 +232,32 @@ export default function ApplicationDetailPage() {
                     setFile(selected);
                     setFileError(selected ? (validateUploadFile(selected) ?? "") : "");
                   }}
-                  className="flex-1 text-sm"
+                  className="min-w-0 flex-1 text-sm file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
                 />
+                <Button size="sm" onClick={upload} disabled={!file || !!fileError} loading={busy}>
+                  Upload
+                </Button>
               </div>
-              {fileError && <p className="text-sm text-red-600">{fileError}</p>}
-              <button
-                onClick={upload}
-                disabled={!file || busy || !!fileError}
-                className="rounded bg-slate-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-600 disabled:opacity-50"
-              >
-                Upload
-              </button>
+              {fileError ? (
+                <Alert variant="error">{fileError}</Alert>
+              ) : (
+                <p className="text-xs text-slate-400">
+                  JPG, PNG or PDF up to 5 MB — verified against the file's actual content.
+                </p>
+              )}
             </div>
           )}
         </section>
       </div>
 
       {editable && isOwner && (
-        <div className="flex items-center gap-3 rounded-lg bg-white p-6 shadow">
-          <button
-            onClick={submit}
-            disabled={busy || app.documents.length === 0}
-            className="rounded bg-green-600 px-5 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
-          >
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <Button variant="success" size="lg" onClick={() => setConfirmingSubmit(true)} disabled={busy || app.documents.length === 0}>
             Submit for review
-          </button>
+          </Button>
           <Link
             to={`/applications/${app.id}/edit`}
-            className="rounded border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
           >
             Edit details
           </Link>
@@ -285,6 +280,25 @@ export default function ApplicationDetailPage() {
           label="events"
         />
       </AuditTrail>
+
+      <Modal
+        open={confirmingSubmit}
+        title="Submit for review?"
+        onClose={() => setConfirmingSubmit(false)}
+      >
+        <p className="text-sm text-slate-600">
+          Once submitted, your application is locked and can no longer be edited.
+          A reviewer will decide whether to approve it or request changes.
+        </p>
+        <div className="mt-5 flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => setConfirmingSubmit(false)}>
+            Cancel
+          </Button>
+          <Button variant="success" onClick={() => void confirmSubmit()} loading={busy}>
+            Submit application
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

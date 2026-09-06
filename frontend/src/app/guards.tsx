@@ -2,9 +2,15 @@ import { Navigate } from "react-router";
 import type { ReactNode } from "react";
 
 import { useAuth } from "@/features/auth/hooks/useAuth";
+import { IconSpinner } from "@/components/ui/icons";
 
 export function PageLoader() {
-  return <p className="p-8 text-center text-slate-500">Loading…</p>;
+  return (
+    <div className="flex items-center justify-center gap-2 p-16 text-slate-500" role="status">
+      <IconSpinner className="h-5 w-5" />
+      <span className="text-sm">Loading…</span>
+    </div>
+  );
 }
 
 export function Protected({ children }: { children: ReactNode }) {

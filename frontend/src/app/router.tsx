@@ -5,7 +5,7 @@ import { PageLoader, Protected, RoleOnly } from "@/app/guards";
 import Layout from "@/components/layout/Layout";
 import { AuthProvider, useAuth } from "@/features/auth/hooks/useAuth";
 
-// Route-level code splitting: pages load on demand.
+
 const ApplicationDetailPage = lazy(() => import("@/features/applications/pages/ApplicationDetailPage"));
 const ApplicationFormPage = lazy(() => import("@/features/applications/pages/ApplicationFormPage"));
 const DashboardPage = lazy(() => import("@/features/dashboard/pages/DashboardPage"));

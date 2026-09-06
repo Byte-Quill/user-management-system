@@ -31,7 +31,6 @@ def _google_sociallogin(email="guser@gmail.com", uid="google-uid-1", verified=Tr
     return sociallogin
 
 
-
 @override_settings(GOOGLE_CLIENT_ID="test-client-id")
 @FAST_PASSWORD_HASHERS
 class GoogleAuthTests(APITestCase):
@@ -57,14 +56,14 @@ class GoogleAuthTests(APITestCase):
         res = self.client.post(self.URL, {"credential": "fake-id-token"})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("access", res.data)
-        # Same session model as password login: refresh in HttpOnly cookie only.
+
         self.assertNotIn("refresh", res.data)
         self.assertTrue(res.cookies["refresh_token"]["httponly"])
 
         user = User.objects.get(email="guser@gmail.com")
         self.assertEqual(user.role, User.Role.APPLICANT)
         self.assertFalse(user.has_usable_password())
-        # Google-provisioned users get the same auto User ID scheme.
+
         self.assertRegex(user.username, r"^PHIN-[A-Z2-9]{8}$")
         self.assertTrue(
             SocialAccount.objects.filter(user=user, provider="google", uid="google-uid-1").exists()
@@ -94,7 +93,7 @@ class GoogleAuthTests(APITestCase):
         self.assertTrue(
             SocialAccount.objects.filter(user=existing, provider="google").exists()
         )
-        # The password credential must keep working after linking.
+
         res = self.client.post(
             "/api/auth/token/", {"email": "guser@gmail.com", "password": "Passw0rd!"}
         )
@@ -158,6 +157,3 @@ class GoogleAuthTests(APITestCase):
         res = self.client.post(self.URL, {"credential": "forged"})
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertGreater(int(res.headers["Retry-After"]), 0)
-
-
-

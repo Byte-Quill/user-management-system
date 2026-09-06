@@ -8,13 +8,10 @@ from django.utils.deprecation import MiddlewareMixin
 
 logger = logging.getLogger("kyc.request")
 
-# Thread-local storage: with threaded gunicorn workers the logger object is
-# shared across threads, so a bare attribute set would race.
+
 _local = threading.local()
 
-# Accepted shape for client/proxy-supplied IDs: bounded, log-safe characters
-# only. Anything else (oversized, control chars, injection attempts) is
-# replaced with a generated UUID so logs cannot be spoofed or polluted.
+
 _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
@@ -27,8 +24,7 @@ class RequestIDMiddleware(MiddlewareMixin):
     """Attach a request ID to each request and response for tracing."""
 
     def process_request(self, request):
-        # Prefer an incoming header (e.g. from a load balancer), but only if
-        # it matches the strict bounded format; otherwise generate one.
+
         request_id = request.META.get("HTTP_X_REQUEST_ID") or ""
         if not _REQUEST_ID_RE.match(request_id):
             request_id = uuid.uuid4().hex

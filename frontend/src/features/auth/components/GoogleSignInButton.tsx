@@ -3,14 +3,7 @@ import type { CredentialResponse } from "@react-oauth/google";
 
 import { useAuth } from "@/features/auth/hooks/useAuth";
 
-/**
- * Google Sign-In button. Rendered only when a Google OAuth client ID is
- * configured (VITE_GOOGLE_CLIENT_ID); otherwise the caller hides it entirely.
- *
- * On success the Google-issued ID token (`credential`) is exchanged with the
- * backend for our JWT session (access token in memory, refresh in the
- * HttpOnly cookie), exactly like password login.
- */
+
 export default function GoogleSignInButton({
   onSuccess,
   onError,

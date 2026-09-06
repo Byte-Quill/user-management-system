@@ -21,10 +21,7 @@ class ThrottleFailureTests(APITestCase):
         cache.clear()
 
     def _simulate_cache_outage(self) -> ExitStack:
-        # FixedWindowThrottle counts via cache.add (fresh window) / cache.incr
-        # (existing window). Under a real DB outage the custom backend's add()
-        # degrades to False while incr() raises DatabaseError — that is the
-        # exact path the fail-closed branch in _allow() must deny.
+
         stack = ExitStack()
         stack.enter_context(
             mock.patch("kyc.common.throttles.cache.add", return_value=False)
@@ -43,7 +40,7 @@ class ThrottleFailureTests(APITestCase):
                 "/api/auth/token/",
                 {"email": "throttle@kyc.local", "password": "Passw0rd!"},
             )
-        # Failing open would return 200 with a valid session.
+
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     def test_otp_request_denied_when_cache_write_fails(self):
@@ -54,4 +51,22 @@ class ThrottleFailureTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
 
+@FAST_PASSWORD_HASHERS
+class OTPPerIPThrottleTests(APITestCase):
+    """Rotating victim emails must not evade the per-(email + IP) OTP cap."""
 
+    def setUp(self):
+        cache.clear()
+
+    def test_otp_requests_bounded_per_ip(self):
+        """OTP requests stay bounded per IP across many victim emails."""
+        for i in range(20):
+            res = self.client.post(
+                "/api/auth/password-reset/request/",
+                {"email": f"victim{i}@kyc.local"},
+            )
+            self.assertEqual(res.status_code, status.HTTP_200_OK)
+        res = self.client.post(
+            "/api/auth/password-reset/request/", {"email": "victim20@kyc.local"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

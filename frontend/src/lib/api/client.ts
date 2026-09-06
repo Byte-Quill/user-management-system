@@ -2,8 +2,7 @@ const BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL.replace(/\/$/, "")}/api`
   : "/api";
 
-// Access token stays in memory only; the refresh token lives in an HttpOnly
-// cookie the backend sets, sent automatically with `credentials: "include"`.
+
 let accessToken: string | null = null;
 
 export function setTokens(access: string) {
@@ -15,7 +14,7 @@ export function clearTokens() {
 }
 
 async function doRefresh(): Promise<boolean> {
-  // The refresh cookie travels with the request automatically.
+
   let res: Response;
   try {
     res = await fetch(`${BASE}/auth/token/refresh/`, {
@@ -25,7 +24,7 @@ async function doRefresh(): Promise<boolean> {
       body: JSON.stringify({}),
     });
   } catch {
-    // Network failure: treat as logged-out rather than crashing the caller.
+
     clearTokens();
     return false;
   }
@@ -40,14 +39,13 @@ async function doRefresh(): Promise<boolean> {
       return true;
     }
   } catch {
-    // Non-JSON body (e.g. a proxy error page): fall through to logout.
+
   }
   clearTokens();
   return false;
 }
 
-// Single-flight: the backend rotates and blacklists refresh tokens, so two
-// concurrent refreshes with the same token would invalidate the session.
+
 let refreshPromise: Promise<boolean> | null = null;
 
 export async function refreshAccess(): Promise<boolean> {
@@ -60,7 +58,7 @@ export async function refreshAccess(): Promise<boolean> {
 export class ApiError extends Error {
   status: number;
   body: unknown;
-  /** Seconds to wait before retrying, from the Retry-After header on 429s. */
+
   retryAfter: number | null;
   constructor(status: number, body: unknown, retryAfter: number | null = null) {
     super(`API error ${status}`);
@@ -70,7 +68,7 @@ export class ApiError extends Error {
   }
 }
 
-/** Flatten a DRF error body ({field: [messages]}) into a single display string. */
+
 export function errorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     if (err.status === 0) {
@@ -83,7 +81,7 @@ export function errorMessage(err: unknown, fallback: string): string {
     }
     if (err.body && typeof err.body === "object" && !Array.isArray(err.body)) {
       const body = err.body as Record<string, string | string[]>;
-      // DRF APIView-style errors: show the message without a "detail:" prefix.
+
       if (typeof body.detail === "string") return body.detail;
       const parts = Object.entries(body).map(([k, v]) => {
         const text = Array.isArray(v) ? v.join(", ") : String(v);
@@ -110,8 +108,7 @@ export async function request<T>(
 
   let res: Response;
   try {
-    // Offline / DNS / connection refused: surface as ApiError(0) so callers
-    // get a friendly message from errorMessage() instead of a raw TypeError.
+
     res = await fetch(`${BASE}${path}`, {
       ...options,
       headers,

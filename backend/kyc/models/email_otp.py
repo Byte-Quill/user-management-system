@@ -3,12 +3,7 @@ from django.conf import settings
 from django.db import models
 
 class EmailOTP(models.Model):
-    """One-time email codes for signup verification and password reset.
-
-    Security properties (enforced by kyc/otp.py): codes are stored as
-    HMAC-SHA256 keyed with SECRET_KEY, single-use with a bounded attempt
-    counter, short TTL, and only the latest OTP per (user, purpose) is valid.
-    """
+    """One-time email codes for signup verification and password reset."""
 
     class Purpose(models.TextChoices):
         VERIFY_EMAIL = "verify_email", "Verify email"

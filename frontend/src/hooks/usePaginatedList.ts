@@ -13,7 +13,6 @@ export function usePaginatedList<T>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Keep the message stable so `load` identity doesn't churn on each render.
   const errorMessageRef = useRef(errorMessage);
   errorMessageRef.current = errorMessage;
   const requestIdRef = useRef(0);

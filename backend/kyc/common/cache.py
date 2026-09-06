@@ -1,17 +1,4 @@
-"""Lightweight database cache backend.
-
-Drop-in replacement for ``django.core.cache.backends.db.DatabaseCache``:
-stock writes run a full-table ``SELECT COUNT(*)`` for MAX_ENTRIES culling and
-cleanup is lazy, so the table grows without bound. This backend does a single
-indexed upsert per write and sweeps expired rows at most once per process
-every ``CLEANUP_INTERVAL`` seconds.
-
-The CRUD methods are implemented directly; ``get_many``/``incr``/``has_key``
-are inherited from ``BaseCache``. ``add`` and ``touch`` are abstract on the
-stock backend but MUST be implemented here — allauth's JWT ``jti`` replay
-guard calls ``cache.add()`` on every social login. The table schema is the
-one created by ``manage.py createcachetable``.
-"""
+"""Lightweight database cache backend."""
 
 import base64
 import pickle
@@ -25,7 +12,7 @@ from django.db import DatabaseError, connections, router, transaction
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now as tz_now
 
-# At most one expired-row sweep per process per interval.
+
 CLEANUP_INTERVAL = 300
 
 _last_cleanup = 0.0
@@ -45,9 +32,9 @@ class LightweightDatabaseCache(BaseDatabaseCache):
     @staticmethod
     def _to_datetime(value):
         """Normalise a raw `expires` column value to an aware datetime."""
-        if isinstance(value, datetime):  # Postgres returns datetime objects.
+        if isinstance(value, datetime):
             return value.replace(tzinfo=UTC) if value.tzinfo is None else value
-        parsed = parse_datetime(str(value))  # Defensive: raw string fallback.
+        parsed = parse_datetime(str(value))
         if parsed is None:
             raise ValueError(f"Unparseable cache expiry: {value!r}")
         return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
@@ -95,7 +82,7 @@ class LightweightDatabaseCache(BaseDatabaseCache):
             return default
         value, expires = row
         if self._to_datetime(expires) < tz_now():
-            # Leave expired rows for the periodic sweep.
+
             return default
         return self._decode(value)
 
@@ -119,17 +106,12 @@ class LightweightDatabaseCache(BaseDatabaseCache):
                     [key, encoded, exp],
                 )
         except DatabaseError:
-            # Match the stock backend: writes fail silently (thread safety).
+
             return False
         return True
 
     def add(self, key, value, timeout=DEFAULT_TIMEOUT, version=None):
-        """Set ``key`` only if absent (or expired); True if stored.
-
-        A single atomic ``INSERT ... ON CONFLICT DO UPDATE ... WHERE expires
-        < now`` so concurrent callers cannot both succeed — this is what makes
-        JWT ``jti`` replay protection race-free.
-        """
+        """Set ``key`` only if absent (or expired); True if stored."""
         key = self.make_and_validate_key(key, version=version)
         timeout = self.get_backend_timeout(timeout)
         connection = self._connection(write=True)
@@ -152,15 +134,12 @@ class LightweightDatabaseCache(BaseDatabaseCache):
                 )
                 inserted = bool(cursor.rowcount)
         except DatabaseError:
-            # Match the stock backend: writes fail silently (thread safety).
+
             return False
         return inserted
 
     def touch(self, key, timeout=DEFAULT_TIMEOUT, version=None):
-        """Extend ``key``'s expiry; True if the key existed.
-
-        A single indexed UPDATE — no read-modify-write round trip.
-        """
+        """Extend ``key``'s expiry; True if the key existed."""
         key = self.make_and_validate_key(key, version=version)
         timeout = self.get_backend_timeout(timeout)
         connection = self._connection(write=True)
@@ -177,21 +156,12 @@ class LightweightDatabaseCache(BaseDatabaseCache):
             return bool(cursor.rowcount)
 
     def incr(self, key, delta=1, version=None):
-        """Atomically increment an integer-valued key; return the new value.
-
-        Read-modify-write would be raced by concurrent gunicorn workers, so
-        the row is locked with ``SELECT ... FOR UPDATE`` inside a transaction
-        (PostgreSQL is the only supported backend). Raises ``ValueError`` for
-        a missing/expired key or a non-integer value — matching the stock
-        backends' contract. Fixed-window throttles (kyc/access.py) depend on
-        the atomicity to keep their counters exact under concurrency.
-        """
+        """Atomically increment an integer-valued key; return the new value."""
         key = self.make_and_validate_key(key, version=version)
         connection = self._connection(write=True)
         quote_name = connection.ops.quote_name
         table = quote_name(self._table)
-        # Atomic on the cache's own alias (routers may route it elsewhere):
-        # the FOR UPDATE row lock must be held to the commit.
+
         with transaction.atomic(using=connection.alias):
             with connection.cursor() as cursor:
                 cursor.execute(

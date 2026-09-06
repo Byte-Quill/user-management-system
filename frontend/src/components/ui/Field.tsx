@@ -1,19 +1,37 @@
 import { useState } from "react";
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import type { InputHTMLAttributes, SelectHTMLAttributes } from "react";
+import { IconCheckSmall, IconInfo } from "./icons";
 
 interface FieldProps {
   label: string;
-  /** Validation error message rendered below the input. */
+
   error?: string;
-  children: ReactNode;
+
+  hint?: string;
+
+  valid?: boolean;
+  children: React.ReactNode;
 }
 
-export function Field({ label, error, children }: FieldProps) {
+export function Field({ label, error, hint, valid, children }: FieldProps) {
   return (
     <label className="block">
       <span className="mb-1 block text-sm font-medium text-slate-700">{label}</span>
       {children}
-      {error && <span className="mt-1 block text-xs text-red-600">{error}</span>}
+      {error ? (
+        <span className="mt-1 block text-xs text-red-600" role="alert">
+          {error}
+        </span>
+      ) : valid ? (
+        <span className="mt-1 flex items-center gap-1 text-xs text-emerald-600">
+          <IconCheckSmall /> Looks good
+        </span>
+      ) : hint ? (
+        <span className="mt-1 flex items-start gap-1 text-xs text-slate-400">
+          <IconInfo className="mt-0.5 h-3 w-3 shrink-0" />
+          {hint}
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -28,7 +46,7 @@ function inputClass(invalid: boolean): string {
 }
 
 interface InvalidProp {
-  /** Renders a red border to flag a validation failure. */
+
   invalid?: boolean;
 }
 
@@ -46,7 +64,7 @@ export function Select({
   return <select {...props} className={inputClass(invalid)} />;
 }
 
-/** Password input with a Show/Hide toggle (shared by all auth forms). */
+
 export function PasswordInput({
   invalid = false,
   ...props

@@ -1,15 +1,9 @@
-/**
- * Complete ISO 3166-1 alpha-2 list (all 249 officially assigned entries:
- * sovereign states plus dependent territories and special regions) for the
- * nationality/country pickers. Flags are rendered as emoji derived from the
- * two-letter code (regional indicator symbols) — no image assets or network
- * requests needed.
- */
+
 
 export interface Country {
-  /** ISO 3166-1 alpha-2 code, e.g. "IN". */
+
   code: string;
-  /** English short name, e.g. "India". This is the stored form value. */
+
   name: string;
 }
 
@@ -265,7 +259,7 @@ export const COUNTRIES: Country[] = [
   { code: "ZW", name: "Zimbabwe" },
 ];
 
-/** Flag emoji for an ISO alpha-2 code ("IN" -> "🇮🇳"). */
+
 export function countryFlag(code: string): string {
   return code
     .toUpperCase()

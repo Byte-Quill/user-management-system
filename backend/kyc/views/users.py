@@ -27,13 +27,7 @@ class MeView(generics.RetrieveAPIView):
 
 
 class UserManagementViewSet(viewsets.ModelViewSet):
-    """SUPER_ADMIN user management: list, create, change roles, reset passwords.
-
-    Self-modification is blocked on update/delete/set-password: an operator
-    must not be able to lock themselves out or silently change their own
-    role. Deactivation is used instead of deletion so the audit trail and
-    application history stay intact.
-    """
+    """SUPER_ADMIN user management: list, create, change roles, reset passwords."""
 
     serializer_class = AdminUserSerializer
     permission_classes = (IsAuthenticated, IsSuperAdmin)
@@ -67,8 +61,7 @@ class UserManagementViewSet(viewsets.ModelViewSet):
         try:
             serializer.save()
         except IntegrityError as exc:
-            # Concurrent creates can pass the serializer's existence checks
-            # and lose to the DB unique constraints (email/phone/username).
+
             raise ValidationError(
                 "An account with these details already exists."
             ) from exc
@@ -77,11 +70,7 @@ class UserManagementViewSet(viewsets.ModelViewSet):
         if serializer.instance.pk == self.request.user.pk:
             raise ValidationError("You cannot change your own role or status.")
         with transaction.atomic():
-            # Lock the active-super-admin set for the check-and-change, so
-            # two concurrent mutual demotions cannot both commit and leave
-            # the deployment with zero active super admins (only reachable
-            # via that race: single actors can never target themselves, and
-            # the actor is always one remaining active super admin).
+
             list(
                 User.objects.select_for_update()
                 .filter(role=User.Role.SUPER_ADMIN, is_active=True)
@@ -105,8 +94,7 @@ class UserManagementViewSet(viewsets.ModelViewSet):
             data=request.data, context={"user": user}
         )
         serializer.is_valid(raise_exception=True)
-        # set_password() changes the password hash, which also revokes all
-        # existing JWTs for the user (CHECK_REVOKE_TOKEN compares the hash).
+
         user.set_password(serializer.validated_data["new_password"])
         user.save(update_fields=["password"])
         return Response({"detail": "Password updated."})

@@ -4,15 +4,12 @@ import { Link, useNavigate } from "react-router";
 
 import * as api from "@/lib/api";
 import { PasswordInput } from "@/components/ui/Field";
-import { validateConfirmPassword, validateEmail, validateOtp, validatePassword } from "@/lib/validation";
+import Alert from "@/components/ui/Alert";
+import { OTP_LENGTH, validateConfirmPassword, validateEmail, validateOtp, validatePassword } from "@/lib/validation";
 
 type Step = "email" | "code";
 
-/**
- * Forgot password: 3-step wizard (email -> OTP -> new password). The backend
- * never reveals whether the email exists, so step 2 always proceeds after a
- * request; a wrong/expired code is caught at confirm time.
- */
+
 export default function ForgotPasswordPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("email");
@@ -86,7 +83,7 @@ export default function ForgotPasswordPage() {
                   className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <Alert variant="error">{error}</Alert>}
               <button
                 type="submit"
                 disabled={busy}
@@ -113,7 +110,7 @@ export default function ForgotPasswordPage() {
                   autoFocus={step === "code"}
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  maxLength={6}
+                  maxLength={OTP_LENGTH}
                   placeholder="123456"
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
@@ -140,7 +137,7 @@ export default function ForgotPasswordPage() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
               </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && <Alert variant="error">{error}</Alert>}
               <button
                 type="submit"
                 disabled={busy}

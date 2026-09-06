@@ -69,6 +69,39 @@ Route-level code splitting is preserved (one lazy chunk per page); the
 `@/` alias (tsconfig `paths` + vite `resolve.alias`) removes fragile
 `../../` import chains.
 
+## Validation architecture (frontend-first UX, backend-authoritative)
+
+Goal: **users never trigger a backend validation error** through the SPA.
+The backend remains the source of truth — the SPA mirrors every rule, and a
+contract test refuses drift. The layers, in order:
+
+1. **`validation.ts` constants** — every rule the SPA enforces lives in
+   `LIMITS`, `DOB_MIN_ISO`, `OTP_LENGTH`, `PASSWORD_MIN_LENGTH`,
+   `MAX_FILE_SIZE_MB` / `ALLOWED_FILE_EXTENSIONS`, `APPLICATION_ID_TYPES`.
+   Forms use these constants for `maxLength`/hints **and** the validators —
+   no inline literals.
+2. **`python manage.py validation_contract`** — emits
+   `frontend/src/lib/backend-contract.json` from the *backend* models /
+   serializers / settings (the single source of truth). Regenerate after any
+   backend rule change:
+   `python manage.py validation_contract > ../frontend/src/lib/backend-contract.json`
+3. **`contract.test.ts`** — compares the committed JSON against the SPA
+   constants. If either side changes without the other, the frontend test
+   suite fails, so the two layers cannot silently drift.
+4. **In-page validators** — Register/Login/Forgot/Verify/Application forms
+   validate on blur and on submit, and the admin "create user" form gates on
+   the same rules as `AdminUserCreateSerializer`. What the browser allows is
+   exactly what the backend accepts (except legacy/edge cases the backend
+   deliberately rejects as integrity guards: expired-ID blocks submission,
+   review concurrency).
+5. **Backend serializers re-validate** — as the authority and the safety net
+   for API clients, curl, and anything that bypasses the SPA. A 4xx from the
+   backend is expected only for *database-level* conditions (duplicates,
+   status races), never for ordinary form mistakes.
+
+Rule of thumb when adding a field or changing a limit: change the backend,
+regenerate the contract, update `validation.ts`, let the tests catch the rest.
+
 ## Adding a new feature
 
 Backend: add a model module in `models/`, register its re-export in

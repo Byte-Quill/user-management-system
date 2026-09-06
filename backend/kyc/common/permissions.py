@@ -36,7 +36,3 @@ class IsOwnerOrReviewer(BasePermission):
         if request.user.is_reviewer:
             return request.method in SAFE_METHODS
         return obj.applicant_id == request.user.id
-
-
-# Login attempts are bounded two ways: per credential (email + IP) and per IP
-# ("login_ip" scope). Counters live in the Postgres-backed cache, so they are

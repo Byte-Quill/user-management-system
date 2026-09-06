@@ -8,6 +8,8 @@ import {
   AuditTrail,
   DocumentList,
 } from "@/features/applications/components/ApplicationSections";
+import Alert from "@/components/ui/Alert";
+import Button from "@/components/ui/Button";
 import StatusBadge from "@/components/ui/StatusBadge";
 import type { AuditEntry, KYCApplication } from "@/types";
 import { validateReviewNotes } from "@/lib/validation";
@@ -36,8 +38,7 @@ export default function ReviewDetailPage() {
       setError("Failed to load application.");
       return;
     }
-    // Audit trail is supplementary: its failure is scoped to the section,
-    // never replaces the application view.
+
     try {
       setAuditError("");
       const trail = await api.fetchAudit(id);
@@ -55,8 +56,8 @@ export default function ReviewDetailPage() {
     load();
   }, [load]);
 
-  if (error && !app) return <p className="text-red-600">{error}</p>;
-  if (!app) return <p className="text-slate-500">Loading…</p>;
+  if (error && !app) return <Alert variant="error">{error}</Alert>;
+  if (!app) return <p className="p-8 text-center text-slate-500">Loading…</p>;
 
   const reviewable = app.status === "submitted";
 
@@ -113,15 +114,15 @@ export default function ReviewDetailPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="flex flex-wrap gap-4">
               {[
-                { value: "approve", label: "Approve", color: "green" },
-                { value: "reject", label: "Reject", color: "red" },
-                { value: "request_resubmission", label: "Request Resubmission", color: "orange" },
+                { value: "approve", label: "Approve", selected: "border-emerald-500 bg-emerald-50 text-emerald-800" },
+                { value: "reject", label: "Reject", selected: "border-red-500 bg-red-50 text-red-800" },
+                { value: "request_resubmission", label: "Request Resubmission", selected: "border-orange-500 bg-orange-50 text-orange-800" },
               ].map((opt) => (
                 <label
                   key={opt.value}
-                  className={`flex cursor-pointer items-center gap-2 rounded border px-4 py-2 text-sm font-medium ${
+                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
                     decision === opt.value
-                      ? "border-blue-500 bg-blue-50 text-blue-800"
+                      ? opt.selected
                       : "border-slate-300 text-slate-700 hover:bg-slate-50"
                   }`}
                 >
@@ -153,14 +154,15 @@ export default function ReviewDetailPage() {
                 className="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            <button
-              type="submit"
-              disabled={busy}
-              className="rounded bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {busy ? "Submitting…" : "Submit decision"}
-            </button>
+            {error && <Alert variant="error">{error}</Alert>}
+            <div className="flex items-center gap-3">
+              <Button type="submit" loading={busy}>
+                {busy ? "Submitting…" : "Submit decision"}
+              </Button>
+              <span className="text-xs text-slate-400">
+                Decisions are recorded in the audit trail and cannot be undone.
+              </span>
+            </div>
           </form>
         </section>
       ) : (

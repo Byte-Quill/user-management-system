@@ -13,7 +13,7 @@ class ReviewQueueView(generics.ListAPIView):
     permission_classes = (IsAuthenticated, IsReviewer)
 
     def get_serializer_context(self):
-        # Queue rows need document metadata only, so skip the signed URLs.
+
         context = super().get_serializer_context()
         context["include_document_url"] = False
         return context

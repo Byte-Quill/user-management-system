@@ -2,6 +2,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
 from kyc.models import generate_user_id
@@ -30,13 +31,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
 
 class AdminUserCreateSerializer(serializers.ModelSerializer):
-    """SUPER_ADMIN account creation: contact + password + role.
-
-    The public User ID is generated server-side, as in self-registration.
-    Admin-created accounts start email-verified: they are provisioned by a
-    trusted operator, and requiring an OTP would need inbox access the
-    operator may not have.
-    """
+    """SUPER_ADMIN account creation: contact + password + role."""
 
     password = PasswordField()
 
@@ -55,7 +50,7 @@ class AdminUserCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "username")
 
     def validate_email(self, value):
-        # Canonical lowercase form (see RegisterSerializer.validate_email).
+
         if not value:
             return value
         return value.strip().lower()
@@ -95,21 +90,28 @@ class AdminUserCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        return User.objects.create_user(
-            email=validated_data.get("email"),
-            username=generate_user_id(),
-            password=validated_data["password"],
-            first_name=validated_data["first_name"],
-            last_name=validated_data["last_name"],
-            phone=validated_data.get("phone"),
-            role=validated_data.get("role", User.Role.APPLICANT),
-            email_verified=True,
-        )
+
+        for attempt in range(3):
+            try:
+                with transaction.atomic():
+                    return User.objects.create_user(
+                        email=validated_data.get("email"),
+                        username=generate_user_id(),
+                        password=validated_data["password"],
+                        first_name=validated_data["first_name"],
+                        last_name=validated_data["last_name"],
+                        phone=validated_data.get("phone"),
+                        role=validated_data.get("role", User.Role.APPLICANT),
+                        email_verified=True,
+                    )
+            except IntegrityError as exc:
+                if "username" in str(exc) and attempt < 2:
+                    continue
+                raise
 
 
 class AdminUserUpdateSerializer(serializers.ModelSerializer):
-    """Role / active-status changes. Self-modification is blocked in the view
-    (an operator must not lock themselves out)."""
+    """Role / active-status changes. Self-modification is blocked in the view."""
 
     class Meta:
         model = User

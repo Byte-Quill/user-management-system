@@ -35,7 +35,7 @@ class AuditLog(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-        # Paginated per-application history: /applications/{id}/audit/.
+
         indexes = [
             models.Index(
                 fields=["application", "-created_at"],
@@ -44,7 +44,7 @@ class AuditLog(models.Model):
         ]
 
     def __str__(self):
-        # application_id is the FK column name; Pylance only knows the `application` field.
+
         return f"{self.action} on {self.application_id} by {self.actor}"  # type: ignore
 
 
@@ -53,4 +53,3 @@ def log_action(application, actor, action, detail=""):
     AuditLog.objects.create(
         application=application, actor=actor, action=action, detail=detail
     )
-

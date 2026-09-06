@@ -33,7 +33,7 @@ class UserManagementTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
         created = User.objects.get(email="new.admin@kyc.local")
         self.assertEqual(created.role, User.Role.ADMIN)
-        # Admin-provisioned accounts skip the OTP gate, so they can log in now.
+
         self.assertTrue(created.email_verified)
         self.assertTrue(created.check_password("Str0ngPass!"))
         self.assertNotIn("password", res.data)
@@ -105,6 +105,3 @@ class UserManagementTests(APITestCase):
     def test_delete_is_not_allowed(self):
         res = self.client.delete(f"/api/users/{self.applicant.pk}/")
         self.assertEqual(res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-
-
-

@@ -1,10 +1,4 @@
-"""Email OTP issuance and verification (signup verification + password reset).
-
-Codes are 6 digits from ``secrets``, stored only as HMAC-SHA256 keyed with
-SECRET_KEY; single-use with a bounded attempt counter, a 10-minute TTL, a
-60-second resend cooldown, and only the latest code per (user, purpose) is
-valid.
-"""
+"""Email OTP issuance and verification (signup verification + password reset)."""
 import hashlib
 import hmac
 import logging
@@ -28,16 +22,12 @@ OTP_LENGTH = 6
 OTP_TTL = timedelta(minutes=10)
 OTP_MAX_ATTEMPTS = 5
 OTP_RESEND_COOLDOWN = timedelta(seconds=60)
-# Rows are purged a day after expiry.
+
 OTP_PURGE_AFTER = timedelta(days=1)
 
 
 def _hash_code(code: str) -> str:
-    """Keyed hash (HMAC-SHA256 with SECRET_KEY), not plain SHA-256.
-
-    A 6-digit code has only 10^6 possibilities — plain SHA-256 could be
-    brute-forced offline from a database leak alone.
-    """
+    """Keyed hash (HMAC-SHA256 with SECRET_KEY), not plain SHA-256."""
     return hmac.new(
         settings.SECRET_KEY.encode("utf-8"), code.encode("utf-8"), hashlib.sha256
     ).hexdigest()
@@ -78,9 +68,7 @@ def _send_otp_email(user, purpose: str, code: str) -> None:
     try:
         send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [user.email])
     except Exception:
-        # Record the failure for the CEO email-activity panel, then re-raise
-        # so the caller's existing outage handling (log + generic response)
-        # still applies.
+
         _log_email(user, purpose, subject, EmailLog.Status.FAILED)
         raise
     _log_email(user, purpose, subject, EmailLog.Status.SENT)
@@ -111,14 +99,9 @@ def latest_active(user, purpose: str):
 
 
 def _issue_otp_db(user, purpose: str):
-    """DB-only issuance: invalidate predecessors and create the new row.
-
-    Returns ``(otp, code)``. Callers must hold the per-user lock (see
-    ``issue_otp`` / ``request_otp``) and send the email only after the
-    transaction commits, so an HTTP send never holds a DB connection or lock.
-    """
+    """DB-only issuance: invalidate predecessors and create the new row."""
     now = timezone.now()
-    # Only the latest code may work: mark unconsumed predecessors consumed.
+
     EmailOTP.objects.filter(
         user=user, purpose=purpose, consumed_at__isnull=True
     ).update(consumed_at=now)
@@ -136,8 +119,7 @@ def _issue_otp_db(user, purpose: str):
 def issue_otp(user, purpose: str) -> EmailOTP:
     """Create a fresh OTP, send it, and invalidate any predecessor."""
     with transaction.atomic():
-        # Row lock on the user: concurrent issuances for the same user
-        # serialize, so they cannot both invalidate each other's predecessor.
+
         User.objects.select_for_update().get(pk=user.pk)
         otp, code = _issue_otp_db(user, purpose)
     _send_otp_email(user, purpose, code)
@@ -146,16 +128,10 @@ def issue_otp(user, purpose: str) -> EmailOTP:
 
 
 def request_otp(user, purpose: str) -> bool:
-    """Send an OTP unless the resend cooldown is still active.
-
-    Returns True when an email was sent. Callers must return a generic
-    response either way (enumeration safety).
-    """
+    """Send an OTP unless the resend cooldown is still active."""
     code = None
     with transaction.atomic():
-        # Row lock on the user: the cooldown check and the issuance happen
-        # atomically, so two concurrent resend requests cannot both pass the
-        # check and double-send.
+
         User.objects.select_for_update().get(pk=user.pk)
         existing = latest_active(user, purpose)
         if (
@@ -165,28 +141,19 @@ def request_otp(user, purpose: str) -> bool:
         ):
             return False
         _, code = _issue_otp_db(user, purpose)
-    # Send outside the transaction/lock (see _issue_otp_db).
+
     _send_otp_email(user, purpose, code)
     _purge_old()
     return True
 
 
 def verify_otp(user, purpose: str, code: str) -> bool:
-    """Constant-time compare against the active OTP; consume on success.
-
-    Every attempt — including the successful one — claims a slot from the
-    attempt counter with a conditional atomic UPDATE, so the cap check is
-    part of the write itself and N concurrent wrong guesses cannot overshoot
-    OTP_MAX_ATTEMPTS via a stale read. Consumption is an atomic UPDATE
-    guarded on ``consumed_at IS NULL``, so single-use holds under concurrency.
-    """
+    """Constant-time compare against the active OTP; consume on success."""
     code = (code or "").strip()
     otp = latest_active(user, purpose)
     if otp is None or not code:
         return False
-    # Claim an attempt slot atomically: the attempts__lt guard makes the cap
-    # check and the increment a single statement, so racing verifications
-    # cannot all pass the old read-then-increment check.
+
     claimed = EmailOTP.objects.filter(
         pk=otp.pk, consumed_at__isnull=True, attempts__lt=OTP_MAX_ATTEMPTS
     ).update(attempts=F("attempts") + 1)

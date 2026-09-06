@@ -13,14 +13,7 @@ from rest_framework.views import exception_handler
 logger = logging.getLogger("kyc.access")
 
 class FixedWindowThrottle(BaseThrottle):
-    """Shared atomic fixed-window counter for credential/OTP endpoints.
-
-    The counter is a single integer per (bucket, identifier). ``cache.add()``
-    creates the slot race-free and ``cache.incr()`` bumps it under a row lock
-    (see ``kyc.common.cache.LightweightDatabaseCache.incr``), so concurrent workers
-    cannot overshoot the cap the way a get-then-set window can. Windows are
-    deterministic clock buckets, so no per-client reset bookkeeping is needed.
-    """
+    """Shared atomic fixed-window counter for credential/OTP endpoints."""
 
     timer = time.time
 
@@ -28,21 +21,16 @@ class FixedWindowThrottle(BaseThrottle):
         now = self.timer()
         bucket = int(now // window_seconds)
         key = f"{key_prefix}:{bucket}"
-        # Absolute epoch time the current bucket rolls over (Retry-After).
+
         self.reset_at = (bucket + 1) * window_seconds
         try:
-            # Seed the counter at 1 so the first attempt counts — seeding at 0
-            # would let max_attempts+1 requests through per window.
+
             if cache.add(key, 1, window_seconds):
-                count = 1  # this request opened the window
+                count = 1
             else:
                 count = cache.incr(key)
         except (ValueError, DatabaseError):
-            # The slot expired/vanished between add() and incr(), or cache
-            # writes are failing (DB outage). Retry the add: if it still
-            # fails, fail CLOSED — an uncounted login/OTP endpoint is an
-            # unbounded brute-force/email-bomb surface exactly when the
-            # system is degraded.
+
             logger.warning("%s throttle counter unavailable; denying request", key_prefix)
             if not cache.add(key, 1, window_seconds):
                 return False
@@ -58,17 +46,11 @@ class FixedWindowThrottle(BaseThrottle):
 
 
 class LoginThrottle(FixedWindowThrottle):
-    """Per-credential login throttle (email + IP) to stop stuffing one account.
-
-    Keying on email alone lets an attacker distribute attempts across many
-    accounts; keying on IP alone poisons a shared proxy/NAT address. Fixed
-    window of LOGIN_THROTTLE_MAX_ATTEMPTS per LOGIN_THROTTLE_WINDOW_SECONDS;
-    every attempt counts, successful logins included.
-    """
+    """Per-credential login throttle (email + IP) to stop stuffing one account."""
 
     def allow_request(self, request, view):
         ident = self.get_ident(request)
-        # request.data may be a dict (JSON) or a QueryDict (form/multipart).
+
         data = request.data
         email = (data.get("email") or "").strip().lower() if hasattr(data, "get") else ""
         return self._allow(
@@ -89,22 +71,13 @@ class RegisterThrottle(AnonRateThrottle):
 
 
 class GoogleLoginThrottle(AnonRateThrottle):
-    """Per-IP cap on Google Sign-In attempts.
-
-    Every attempt costs an RSA signature verification plus a fetch of
-    Google's public keys, so the endpoint is bounded per IP.
-    """
+    """Per-IP cap on Google Sign-In attempts."""
 
     scope = "google_login"
 
 
 class OTPRequestThrottle(FixedWindowThrottle):
-    """Per (email + IP) cap on OTP email requests (verify resend, reset request).
-
-    Email sending costs money, so an unbounded endpoint would be an email
-    bomb aimed at arbitrary inboxes. Fixed window of OTP_REQUEST_MAX per
-    OTP_REQUEST_WINDOW_SECONDS.
-    """
+    """Per (email + IP) cap on OTP email requests (verify resend, reset request)."""
 
     def allow_request(self, request, view):
         ident = self.get_ident(request)
@@ -117,23 +90,20 @@ class OTPRequestThrottle(FixedWindowThrottle):
         )
 
 
-class OTPVerifyThrottle(AnonRateThrottle):
-    """Per-IP cap on OTP verification attempts.
+class OTPIPRequestThrottle(AnonRateThrottle):
+    """Per-IP cap on OTP email sends, complementing OTPRequestThrottle."""
 
-    The per-OTP attempt counter (5) already bounds brute force of one code;
-    this additionally bounds rotation across many OTPs/emails from one IP.
-    """
+    scope = "otp_request_ip"
+
+
+class OTPVerifyThrottle(AnonRateThrottle):
+    """Per-IP cap on OTP verification attempts."""
 
     scope = "otp_verify"
 
 
 class DownloadThrottle(ScopedRateThrottle):
-    """Per-IP cap on signed document downloads (unauthenticated endpoint).
-
-    Generous enough for a reviewer opening many files, but bounds scraping /
-    DoS of the file-serving path; requests are always anonymous, so the
-    counter is keyed by IP.
-    """
+    """Per-IP cap on signed document downloads (unauthenticated endpoint)."""
 
     def get_cache_key(self, request, view):
         return f"download-throttle:anon:{self.get_ident(request)}"
@@ -144,9 +114,9 @@ class WriteThrottle(ScopedRateThrottle):
 
     def get_cache_key(self, request, view):
         if request.user and request.user.is_authenticated:
-            # Key per user, not per IP: NAT/proxy users should not be pooled.
+
             return f"write-throttle:{request.user.pk}:{self.scope}"
-        # Anonymous fallback: throttle by IP to prevent unauthenticated DoS.
+
         ident = self.get_ident(request)
         return f"write-throttle:anon:{ident}:{self.scope}"
 

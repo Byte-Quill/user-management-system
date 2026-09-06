@@ -3,22 +3,42 @@ import { isValidPhoneNumber } from "libphonenumber-js/max";
 import type { ApplicationPayload } from "@/types";
 import { isDisposableEmail } from "@/data/disposableEmails";
 
-/**
- * Client-side validators mirroring the backend rules so users get immediate
- * feedback. The server remains the source of truth.
- */
 
 export type FieldErrors<T extends string = string> = Partial<Record<T, string>>;
 
-// Mirror MAX_UPLOAD_SIZE_MB / ALLOWED_UPLOAD_EXTENSIONS in config/settings.py.
+
 export const MAX_FILE_SIZE_MB = 5;
 export const ALLOWED_FILE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".pdf"];
 
+
+export const LIMITS = {
+  fullName: 255,
+  name: 150,
+  nationality: 100,
+  phone: 30,
+  email: 254,
+  addressLine1: 255,
+  addressLine2: 255,
+  city: 100,
+  state: 100,
+  postalCode: 20,
+  country: 100,
+  idNumber: 100,
+};
+
+export const DOB_MIN_ISO = "1900-01-01";
+export const OTP_LENGTH = 6;
+export const PASSWORD_MIN_LENGTH = 8;
+
+export const APPLICATION_ID_TYPES = [
+  "passport",
+  "national_id",
+  "drivers_license",
+] as const;
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// Person names: Unicode letters plus spaces, hyphens, apostrophes and periods.
-// \p{L}\p{M}* mirrors Python's Unicode-aware [^\W\d_] (JS \w is ASCII-only, so
-// [^\W\d_] would wrongly reject CJK/non-Latin names the backend accepts);
-// \p{M} covers combining marks (e.g. decomposed accents).
+
+
 const NAME_RE = /^(?:\p{L}\p{M}*|[ \-'.])+$/u;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -32,12 +52,24 @@ const COMMON_PASSWORDS = new Set([
 
 export const isBlank = (value: string): boolean => value.trim() === "";
 
+
+export function capitalizeFirst(value: string): string {
+  const trimmed = value.trimStart();
+  if (!trimmed || !/^\p{Ll}/u.test(trimmed)) return value;
+  return value.slice(0, value.length - trimmed.length) + trimmed[0].toUpperCase() + trimmed.slice(1);
+}
+
+
+export function capitalizeWords(value: string): string {
+  return value.replace(/(^|[\s'-])(\p{Ll})/gu, (_, sep: string, ch: string) => sep + ch.toUpperCase());
+}
+
 function isValidISODate(value: string): boolean {
   return ISO_DATE_RE.test(value) && !Number.isNaN(Date.parse(value));
 }
 
 /** Local date as YYYY-MM-DD (toISOString uses UTC and can be off by a day). */
-function todayISO(): string {
+export function todayISO(): string {
   const d = new Date();
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -73,9 +105,14 @@ export function validateName(
 ): string | null {
   const trimmed = value.trim();
   if (!trimmed) return required ? `${label} is required.` : null;
-  if (trimmed.length > 150) return `${label} must be at most 150 characters.`;
+  if (trimmed.length > LIMITS.name) {
+    return `${label} must be at most ${LIMITS.name} characters.`;
+  }
   if (!NAME_RE.test(trimmed)) {
     return `${label} may only contain letters, spaces, hyphens, apostrophes and periods.`;
+  }
+  if (/^\p{Ll}/u.test(trimmed)) {
+    return `${label} must start with a capital letter.`;
   }
   return null;
 }
@@ -104,17 +141,21 @@ export function validateIdentifier(value: string): string | null {
   return null;
 }
 
-/** 6-digit email OTP (mirrors kyc/otp.py OTP_LENGTH). */
+/** 6-digit email OTP (mirrors kyc/services/otp.py OTP_LENGTH). */
 export function validateOtp(value: string): string | null {
-  if (isBlank(value)) return "Enter the 6-digit code.";
-  if (!/^\d{6}$/.test(value.trim())) return "The code must be exactly 6 digits.";
+  if (isBlank(value)) return `Enter the ${OTP_LENGTH}-digit code.`;
+  if (!new RegExp(`^\\d{${OTP_LENGTH}}$`).test(value.trim())) {
+    return `The code must be exactly ${OTP_LENGTH} digits.`;
+  }
   return null;
 }
 
 /** Mirrors Django's AUTH_PASSWORD_VALIDATORS (server enforces min length 8). */
 export function validatePassword(value: string): string | null {
   if (!value) return "Password is required.";
-  if (value.length < 8) return "Password must be at least 8 characters.";
+  if (value.length < PASSWORD_MIN_LENGTH) {
+    return `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
+  }
   if (/^\d+$/.test(value)) return "Password cannot be entirely numeric.";
   if (COMMON_PASSWORDS.has(value.toLowerCase())) {
     return "This password is too common. Please choose something else.";
@@ -122,17 +163,14 @@ export function validatePassword(value: string): string | null {
   return null;
 }
 
-/** Confirm-password check for the password-setting forms (register, reset). */
+
 export function validateConfirmPassword(password: string, confirm: string): string | null {
   if (!confirm) return "Please confirm your password.";
   if (password !== confirm) return "Passwords do not match.";
   return null;
 }
 
-/**
- * Login only checks presence — strength rules apply when *setting* a
- * password, never when signing in with an existing one.
- */
+
 export function validateLoginPassword(value: string): string | null {
   if (!value) return "Password is required.";
   return null;
@@ -164,7 +202,9 @@ export function validateOptional(
 export function validatePhone(value: string): string | null {
   if (isBlank(value)) return "Phone is required.";
   const trimmed = value.trim();
-  if (trimmed.length > 30) return "Phone must be at most 30 characters.";
+  if (trimmed.length > LIMITS.phone) {
+    return `Phone must be at most ${LIMITS.phone} characters.`;
+  }
   if (!/^\+?[\d\s\-().]+$/.test(trimmed)) {
     return "Enter a valid phone number (digits, spaces, + - ( ) .).";
   }
@@ -175,12 +215,7 @@ export function validatePhone(value: string): string | null {
   return null;
 }
 
-/**
- * Strict check for forms using the country-code picker (PhoneInputField),
- * which emits E.164 ("+91…"). libphonenumber verifies the number is valid
- * for its country (e.g. India needs 10 digits after +91). Login keeps the
- * lenient validatePhone because identifiers are typed free-form.
- */
+
 export function validateE164Phone(value: string): string | null {
   if (isBlank(value)) return "Phone is required.";
   if (!isValidPhoneNumber(value)) {
@@ -193,26 +228,26 @@ export function validateDateOfBirth(value: string): string | null {
   if (isBlank(value)) return "Date of birth is required.";
   if (!isValidISODate(value)) return "Enter a valid date.";
   if (value > todayISO()) return "Date of birth cannot be in the future.";
-  if (value < "1900-01-01") return "Enter a valid date of birth.";
+  if (value < DOB_MIN_ISO) return "Enter a valid date of birth.";
   return null;
 }
 
-/** Optional DOB (registration): same bounds, but an empty value is fine. */
+
 export function validateOptionalDateOfBirth(value: string): string | null {
   if (!value) return null;
   if (!isValidISODate(value)) return "Enter a valid date.";
   if (value > todayISO()) return "Date of birth cannot be in the future.";
-  if (value < "1900-01-01") return "Enter a valid date of birth.";
+  if (value < DOB_MIN_ISO) return "Enter a valid date of birth.";
   return null;
 }
 
 export function validateIdExpiry(value: string): string | null {
-  if (!value) return null; // optional field
+  if (!value) return null;
   if (!isValidISODate(value)) return "Enter a valid date.";
   return null;
 }
 
-/** Mirrors Document.clean(): extension allow-list + 5 MB size cap. */
+
 export function validateUploadFile(file: File): string | null {
   const dot = file.name.lastIndexOf(".");
   const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
@@ -225,7 +260,7 @@ export function validateUploadFile(file: File): string | null {
   return null;
 }
 
-/** Mirrors ReviewSerializer: notes required for reject / request_resubmission. */
+
 export function validateReviewNotes(decision: string, notes: string): string | null {
   if (decision !== "approve" && isBlank(notes)) {
     return "Notes are required when rejecting or requesting resubmission.";
@@ -233,7 +268,7 @@ export function validateReviewNotes(decision: string, notes: string): string | n
   return null;
 }
 
-/** Validate the KYC application form; limits mirror the KYCApplication model. */
+
 export function validateApplication(
   form: ApplicationPayload
 ): FieldErrors<keyof ApplicationPayload> {
@@ -242,19 +277,19 @@ export function validateApplication(
     if (message) errors[key] = message;
   };
 
-  check("full_name", validateRequired(form.full_name, "Full name", 255));
+  check("full_name", validateRequired(form.full_name, "Full name", LIMITS.fullName));
   check("date_of_birth", validateDateOfBirth(form.date_of_birth));
-  check("nationality", validateRequired(form.nationality, "Nationality", 100));
+  check("nationality", validateRequired(form.nationality, "Nationality", LIMITS.nationality));
   check("phone", validateE164Phone(form.phone));
-  check("address_line1", validateRequired(form.address_line1, "Address line 1", 255));
-  check("address_line2", validateOptional(form.address_line2, "Address line 2", 255));
-  check("city", validateRequired(form.city, "City", 100));
-  check("state", validateRequired(form.state, "State", 100));
-  check("postal_code", validateRequired(form.postal_code, "Postal code", 20));
-  check("country", validateRequired(form.country, "Country", 100));
-  check("id_number", validateRequired(form.id_number, "ID number", 100));
+  check("address_line1", validateRequired(form.address_line1, "Address line 1", LIMITS.addressLine1));
+  check("address_line2", validateOptional(form.address_line2, "Address line 2", LIMITS.addressLine2));
+  check("city", validateRequired(form.city, "City", LIMITS.city));
+  check("state", validateRequired(form.state, "State", LIMITS.state));
+  check("postal_code", validateRequired(form.postal_code, "Postal code", LIMITS.postalCode));
+  check("country", validateRequired(form.country, "Country", LIMITS.country));
+  check("id_number", validateRequired(form.id_number, "ID number", LIMITS.idNumber));
   check("id_expiry", validateIdExpiry(form.id_expiry ?? ""));
-  if (!["passport", "national_id", "drivers_license"].includes(form.id_type)) {
+  if (!(APPLICATION_ID_TYPES as readonly string[]).includes(form.id_type)) {
     errors.id_type = "Select a valid ID type.";
   }
   return errors;

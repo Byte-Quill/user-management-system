@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
 
 import type { AuditEntry, KycDocument, KYCApplication } from "@/types";
+import { todayISO } from "@/lib/validation";
+import Alert from "@/components/ui/Alert";
+import { IconFile } from "@/components/ui/icons";
 
-/** Shared applicant-detail definition list used by the applicant and reviewer views. */
+
 export function ApplicationDetails({
   app,
   title,
@@ -35,7 +38,14 @@ export function ApplicationDetails({
         {app.id_expiry && (
           <>
             <dt className="text-slate-500">ID expiry</dt>
-            <dd>{app.id_expiry}</dd>
+            <dd className={app.id_expiry < todayISO() ? "font-medium text-red-600" : ""}>
+              {app.id_expiry}
+              {app.id_expiry < todayISO() && (
+                <span className="ml-2 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-200">
+                  expired
+                </span>
+              )}
+            </dd>
           </>
         )}
         {children}
@@ -44,7 +54,7 @@ export function ApplicationDetails({
   );
 }
 
-/** Document list with an optional per-row remove action (owner-only). */
+
 export function DocumentList({
   documents,
   onRemove,
@@ -59,24 +69,27 @@ export function DocumentList({
   return (
     <ul className={`space-y-2 ${className}`.trim()}>
       {documents.map((doc) => (
-        <li key={doc.id} className="flex items-center justify-between text-sm">
-          <span>
-            <span className="font-medium capitalize">{doc.doc_type.replace("_", " ")}</span>{" "}
-            —{" "}
+        <li key={doc.id} className="flex items-center justify-between gap-3 text-sm">
+          <span className="flex min-w-0 items-center gap-2">
+            <IconFile className="h-4 w-4 shrink-0 text-slate-400" />
+            <span className="font-medium capitalize text-slate-800">
+              {doc.doc_type.replace("_", " ")}
+            </span>
+            <span className="text-slate-300">·</span>
             {doc.file ? (
               <a
                 href={doc.file}
                 target="_blank"
                 rel="noreferrer"
-                className="text-blue-600 hover:underline"
+                className="truncate text-blue-600 hover:underline"
               >
                 {doc.original_filename}
               </a>
             ) : (
-              <span>{doc.original_filename}</span>
+              <span className="truncate text-slate-600">{doc.original_filename}</span>
             )}
           </span>
-          <span className="flex items-center gap-3">
+          <span className="flex shrink-0 items-center gap-3">
             <span className="text-slate-400">
               {new Date(doc.uploaded_at).toLocaleDateString()}
             </span>
@@ -84,7 +97,7 @@ export function DocumentList({
               <button
                 onClick={() => onRemove(doc.id)}
                 disabled={busy}
-                className="text-xs font-medium text-red-600 hover:underline disabled:opacity-50"
+                className="rounded px-1.5 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
               >
                 Remove
               </button>
@@ -96,25 +109,41 @@ export function DocumentList({
   );
 }
 
-/** Immutable audit-trail timeline; pass pagination as children when needed. */
+
+const ACTION_DOTS: Record<string, string> = {
+  created: "bg-slate-400",
+  updated: "bg-slate-400",
+  submitted: "bg-blue-500",
+  document_uploaded: "bg-blue-400",
+  document_removed: "bg-slate-300",
+  approved: "bg-emerald-500",
+  rejected: "bg-red-500",
+  resubmission_requested: "bg-orange-500",
+};
+
+
 export function AuditTrail({
   entries,
   error,
   children,
 }: {
   entries: AuditEntry[];
-  /** Load failure message; shown inside the section, not page-replacing. */
+
   error?: string;
   children?: ReactNode;
 }) {
   return (
     <section className="rounded-lg bg-white p-6 shadow">
       <h2 className="mb-4 text-lg font-semibold">Audit Trail</h2>
-      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+      {error && <Alert variant="error" className="mb-3">{error}</Alert>}
       <ol className="relative space-y-4 border-l border-slate-200 pl-6">
         {entries.map((entry) => (
           <li key={entry.id} className="text-sm">
-            <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-blue-500" />
+            <span
+              className={`absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full ${
+                ACTION_DOTS[entry.action] ?? "bg-slate-400"
+              }`}
+            />
             <p className="font-medium capitalize">{entry.action.replace(/_/g, " ")}</p>
             <p className="text-slate-500">
               {entry.actor_email ?? "system"} · {new Date(entry.created_at).toLocaleString()}

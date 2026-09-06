@@ -2,12 +2,14 @@
 import os
 import threading
 import time
+from datetime import date, timedelta
 from unittest import mock
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TransactionTestCase, skipUnlessDBFeature
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 from kyc.models import Document, KYCApplication
@@ -19,7 +21,7 @@ User = get_user_model()
 @FAST_PASSWORD_HASHERS
 class ApplicationFlowTests(APITestCase):
     def setUp(self):
-        cache.clear()  # keep user-scoped write throttles deterministic per test
+        cache.clear()
         self.applicant = make_user("user@kyc.local", User.Role.APPLICANT)
         self.other = make_user("other@kyc.local", User.Role.APPLICANT)
         self.reviewer = make_user("rev@kyc.local", User.Role.ADMIN)
@@ -121,7 +123,7 @@ class ApplicationFlowTests(APITestCase):
             f"/api/applications/{app_id}/",
             {"full_name": "Tampered Name"},
         )
-        # Permission layer now blocks reviewers from any write operations
+
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_review_queue_only_for_reviewers(self):
@@ -168,26 +170,22 @@ class ApplicationFlowTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         doc_id = res.data["id"]
 
-        # Only removable while editable, and only by the owner.
         self.client.post(f"/api/applications/{app_id}/submit/")
         res = self.client.delete(f"/api/applications/{app_id}/documents/{doc_id}/")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
-        # Non-owner gets 404: the queryset is owner-scoped (no existence leak).
         self.auth(self.other)
         res = self.client.delete(f"/api/applications/{app_id}/documents/{doc_id}/")
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
-        # Owner removes it from a draft and it is logged.
         self.auth(self.applicant)
         app_id = self.create_app()
         res = self.upload_doc(app_id)
         doc_id = res.data["id"]
-        # Capture the on-disk path before deletion so we can assert cleanup.
+
         file_path = Document.objects.get(pk=doc_id).file.path
         self.assertTrue(os.path.exists(file_path))
-        # File cleanup is deferred to transaction commit (so a rollback cannot
-        # lose the file); TestCase never commits, so run the callbacks here.
+
         with self.captureOnCommitCallbacks(execute=True):
             res = self.client.delete(f"/api/applications/{app_id}/documents/{doc_id}/")
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
@@ -195,14 +193,12 @@ class ApplicationFlowTests(APITestCase):
             Document.objects.filter(pk=doc_id).exists(),
             False,
         )
-        # Django never deletes FileField files; the post_delete signal must
-        # remove the PII file from disk.
+
         self.assertFalse(os.path.exists(file_path))
         res = self.client.get(f"/api/applications/{app_id}/audit/")
         actions = [entry["action"] for entry in res.data["results"]]
         self.assertEqual(actions[0], "document_removed")
 
-        # Unknown document id -> 404.
         res = self.client.delete(f"/api/applications/{app_id}/documents/does-not-exist/")
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -241,30 +237,25 @@ class ApplicationFlowTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         doc_id = res.data["id"]
 
-        # The upload response and detail view expose a signed URL.
         self.assertIn("token=", res.data["file"])
         res = self.client.get(f"/api/applications/{app_id}/")
         doc_url = res.data["documents"][0]["file"]
         self.assertIn(f"/api/documents/{doc_id}/download/?token=", doc_url)
 
-        # The URL works WITHOUT the JWT (browser new-tab semantics)...
         self.client.credentials()
         res = self.client.get(doc_url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res["Content-Type"], "application/pdf")
-        # attachment (not inline): in-browser PDF JavaScript would run with
-        # the viewer's session on the app origin.
+
         self.assertIn("attachment", res["Content-Disposition"])
         content = b"".join(res.streaming_content)
         self.assertTrue(content.startswith(b"%PDF-1.4"))
 
-        # ...but a missing, forged, or mismatched token is rejected.
         res = self.client.get(f"/api/documents/{doc_id}/download/")
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         res = self.client.get(f"/api/documents/{doc_id}/download/?token=forged")
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
-        # A valid token for another document must not grant access.
         from kyc.models import document_download_token
 
         other_token = document_download_token("00000000-0000-0000-0000-000000000000")
@@ -298,8 +289,7 @@ class ApplicationFlowTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_patch_rejected_after_submit(self):
-        """The editable-status check and the write happen under one row lock,
-        so a submitted application can never be patched."""
+        """The editable-status check and the write happen under one row lock,."""
         self.auth(self.applicant)
         app_id = self.create_app()
         self.upload_doc(app_id)
@@ -313,8 +303,7 @@ class ApplicationFlowTests(APITestCase):
         )
 
     def test_upload_rolls_back_file_on_audit_failure(self):
-        """If anything after the storage write fails, the transaction rolls
-        back and the orphaned PII file is removed from disk."""
+        """If anything after the storage write fails, the transaction rolls."""
         self.auth(self.applicant)
         app_id = self.create_app()
         file = SimpleUploadedFile(
@@ -323,7 +312,7 @@ class ApplicationFlowTests(APITestCase):
             content_type="application/pdf",
         )
         with mock.patch("kyc.views.applications.log_action", side_effect=RuntimeError("audit down")):
-            # Let the exception surface as a 500 instead of re-raising here.
+
             self.client.raise_request_exception = False
             try:
                 res = self.client.post(
@@ -334,15 +323,77 @@ class ApplicationFlowTests(APITestCase):
             finally:
                 self.client.raise_request_exception = True
         self.assertEqual(res.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        # Row rolled back...
+
         self.assertEqual(Document.objects.filter(application_id=app_id).count(), 0)
-        # ...and no orphaned file remains in the application's storage dir.
+
         app_dir = os.path.join(settings.MEDIA_ROOT, "documents", str(app_id))
         self.assertFalse(
             os.path.isdir(app_dir) and os.listdir(app_dir),
             f"orphaned upload left in {app_dir}",
         )
 
+    def test_create_rejects_expired_id_expiry(self):
+        """An already-expired ID is refused at creation, not at review time."""
+        self.auth(self.applicant)
+        payload = {**APP_PAYLOAD, "id_expiry": (date.today() - timedelta(days=1)).isoformat()}
+        res = self.client.post("/api/applications/", payload)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("expired", str(res.data))
+
+    def test_expired_id_blocks_submission(self):
+        """An ID that expires while a draft sits around still blocks submission."""
+        self.auth(self.applicant)
+        app_id = self.create_app()
+        self.upload_doc(app_id)
+        KYCApplication.objects.filter(pk=app_id).update(
+            id_expiry=date.today() - timedelta(days=1)
+        )
+        res = self.client.post(f"/api/applications/{app_id}/submit/")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("expired", str(res.data))
+        self.assertEqual(
+            KYCApplication.objects.get(pk=app_id).status, KYCApplication.Status.DRAFT
+        )
+
+    def test_reviewer_cannot_review_own_application(self):
+        """A reviewer must not decide their own submitted application."""
+        reviewer = make_user("owner@kyc.local", User.Role.ADMIN)
+        app = KYCApplication.objects.create(
+            applicant=reviewer,
+            full_name="Owner Applicant",
+            date_of_birth=date(1992, 5, 20),
+            nationality="Indian",
+            phone="+919000000099",
+            address_line1="1 Main Street",
+            city="Pune",
+            state="Maharashtra",
+            postal_code="411001",
+            country="India",
+            id_type=KYCApplication.IDType.PASSPORT,
+            id_number="B7654321",
+            status=KYCApplication.Status.SUBMITTED,
+            submitted_at=timezone.now(),
+        )
+        self.auth(reviewer)
+        res = self.client.post(
+            f"/api/applications/{app.pk}/review/", {"decision": "approve"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        app.refresh_from_db()
+        self.assertEqual(app.status, KYCApplication.Status.SUBMITTED)
+        self.assertIsNone(app.reviewer)
+
+    def test_document_count_is_capped(self):
+        """Storage bound: a draft cannot accumulate unbounded 5 MB files."""
+        self.auth(self.applicant)
+        app_id = self.create_app()
+        cap = settings.MAX_DOCUMENTS_PER_APPLICATION
+        for _ in range(cap):
+            res = self.upload_doc(app_id)
+            self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        res = self.upload_doc(app_id)
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("At most", str(res.data))
 
 
 @FAST_PASSWORD_HASHERS
@@ -395,8 +446,7 @@ class ConcurrencyTests(TransactionTestCase):
         )
 
     def test_concurrent_mutual_demote_keeps_one_super_admin(self):
-        """Two super admins demoting each other simultaneously must not leave
-        the deployment with zero active super admins."""
+        """Two super admins demoting each other simultaneously must not leave."""
         other = make_user("super2@kyc.local", User.Role.SUPER_ADMIN)
 
         def demote(actor_email, target_pk, results):
@@ -429,12 +479,7 @@ class ConcurrencyTests(TransactionTestCase):
         for t in threads:
             t.join()
 
-        # At least one demotion must have been refused, and an active super
-        # admin must remain afterwards.
         self.assertIn(status.HTTP_400_BAD_REQUEST, results)
         self.assertTrue(
             User.objects.filter(role=User.Role.SUPER_ADMIN, is_active=True).exists()
         )
-
-
-
