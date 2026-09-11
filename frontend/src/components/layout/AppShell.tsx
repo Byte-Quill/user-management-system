@@ -119,7 +119,7 @@ export default function AppShell() {
             <span aria-hidden="true">{ICONS.dashboard}</span>
             Dashboard
           </NavLink>
-          {user && user.role !== "ceo" && (
+          {user?.role === "applicant" && (
             <NavLink to="/applications/new" className={railLink}>
               <span aria-hidden="true">{ICONS.plus}</span>
               New application

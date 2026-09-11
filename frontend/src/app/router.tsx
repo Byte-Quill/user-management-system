@@ -21,7 +21,12 @@ const TermsPage = lazy(() => import("@/features/auth/pages/TermsPage"));
 
 function HomeRoute() {
   const { user } = useAuth();
-  return user?.role === "ceo" ? <Navigate to="/analytics" replace /> : <DashboardPage />;
+  if (user?.role === "ceo") return <Navigate to="/analytics" replace />;
+  // Admins/super admins work out of the review queue, not the applicant dashboard.
+  if (user?.role === "admin" || user?.role === "super_admin") {
+    return <Navigate to="/review" replace />;
+  }
+  return <DashboardPage />;
 }
 
 export default function AppRoutes() {
@@ -42,8 +47,24 @@ export default function AppRoutes() {
             }
           >
             <Route path="/" element={<HomeRoute />} />
-            <Route path="/applications/new" element={<ApplicationFormPage />} />
-            <Route path="/applications/:id/edit" element={<ApplicationFormPage />} />
+            {/* Creating/editing a KYC application is applicant-only; reviewers
+                get a 403 from the API, so keep them out of the form entirely. */}
+            <Route
+              path="/applications/new"
+              element={
+                <RoleOnly roles={["applicant"]}>
+                  <ApplicationFormPage />
+                </RoleOnly>
+              }
+            />
+            <Route
+              path="/applications/:id/edit"
+              element={
+                <RoleOnly roles={["applicant"]}>
+                  <ApplicationFormPage />
+                </RoleOnly>
+              }
+            />
             <Route path="/applications/:id" element={<ApplicationDetailPage />} />
             <Route
               path="/review"
