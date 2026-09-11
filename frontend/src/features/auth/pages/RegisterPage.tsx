@@ -9,6 +9,7 @@ import DateOfBirthInput from "@/components/form/DateOfBirthInput";
 import { Field, PasswordInput, Select, TextInput } from "@/components/ui/Field";
 import GoogleSignInButton from "@/features/auth/components/GoogleSignInButton";
 import PhoneInputField from "@/components/form/PhoneInputField";
+import AuthShell from "@/features/auth/components/AuthShell";
 import PasswordStrength from "@/components/ui/PasswordStrength";
 import {
   GENDER_OPTIONS,
@@ -264,17 +265,20 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-8">
-      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-lg shadow-slate-200/60">
-        <div className="mb-6 text-center">
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">Create account</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Step {step + 1} of {STEPS.length} · {STEPS[step].title}
-          </p>
-        </div>
-        <form onSubmit={onSubmit} className="space-y-4" noValidate>
-          <div>
-            <div className="mb-2 flex items-start justify-between">
+    <AuthShell
+      title="Create account"
+      subtitle={`Step ${step + 1} of ${STEPS.length} · ${STEPS[step].title}`}
+      footer={
+        <p className="mt-5 border-t border-ink-100 pt-4 text-center text-sm text-ink-600">
+          Already registered?{" "}
+          <Link to="/login" className="font-semibold text-brand-600 hover:text-brand-700 hover:underline">
+            Sign in
+          </Link>
+        </p>
+      }
+    >
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
+          <div className="mb-2 flex items-start justify-between">
               {STEPS.map((s, i) => {
                 const done =
                   i !== step && Object.keys(stepErrors[i]).length === 0;
@@ -292,10 +296,10 @@ export default function RegisterPage() {
                       className={
                         "flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-colors " +
                         (done
-                          ? "bg-blue-600 text-white hover:bg-blue-700"
+                          ? "bg-brand-600 text-white hover:bg-brand-700"
                           : i === step
-                            ? "border-2 border-blue-600 bg-white text-blue-600"
-                            : "border border-slate-300 bg-white text-slate-400 hover:border-blue-400 hover:text-blue-500")
+                            ? "border-2 border-brand-600 bg-white text-brand-600"
+                            : "border border-ink-300 bg-white text-ink-400 hover:border-brand-400 hover:text-brand-500")
                       }
                     >
                       {done ? "✓" : i + 1}
@@ -325,13 +329,12 @@ export default function RegisterPage() {
               aria-label={`Step ${step + 1} of ${STEPS.length}: ${STEPS[step].title}`}
             >
               <div
-                className="h-full rounded-full bg-blue-600 transition-all duration-300"
+                className="h-full rounded-full bg-brand-600 transition-all duration-300"
                 style={{ width: `${((step + 1) / STEPS.length) * 100}%` }}
               />
             </div>
-          </div>
 
-          <p className="rounded bg-blue-50 px-3 py-2 text-xs leading-relaxed text-blue-800">
+          <p className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-xs leading-relaxed text-brand-800 motion-safe:animate-fade-in">
             {STEPS[step].hint}
           </p>
 
@@ -547,7 +550,7 @@ export default function RegisterPage() {
                 type="button"
                 onClick={back}
                 disabled={busy}
-                className="flex-1 rounded border border-slate-300 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="flex-1 rounded-xl border border-ink-200 py-2 text-sm font-semibold text-ink-700 hover:border-ink-300 hover:bg-ink-50 disabled:opacity-50"
               >
                 Back
               </button>
@@ -556,7 +559,7 @@ export default function RegisterPage() {
               <button
                 type="submit"
                 disabled={busy}
-                className="flex-1 rounded bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                className="flex-1 rounded-xl bg-ink-900 py-2 text-sm font-semibold text-white hover:bg-ink-950 active:scale-[0.99] disabled:opacity-50"
               >
                 Next
               </button>
@@ -565,7 +568,7 @@ export default function RegisterPage() {
               <button
                 type="submit"
                 disabled={busy}
-                className="flex-1 rounded bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                className="flex-1 rounded-xl bg-ink-900 py-2 text-sm font-semibold text-white hover:bg-ink-950 active:scale-[0.99] disabled:opacity-50"
               >
                 {busy ? "Creating…" : "Create account"}
               </button>
@@ -583,14 +586,6 @@ export default function RegisterPage() {
             <GoogleSignInButton onSuccess={() => navigate("/")} onError={setError} />
           </>
         )}
-
-        <p className="mt-4 text-center text-sm text-slate-600">
-          Already registered?{" "}
-          <Link to="/login" className="font-medium text-blue-600 hover:underline">
-            Sign in
-          </Link>
-        </p>
-      </div>
-    </div>
+    </AuthShell>
   );
 }
