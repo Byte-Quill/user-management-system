@@ -1,4 +1,5 @@
 """User-management serializers (SUPER_ADMIN console)."""
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -10,6 +11,7 @@ from kyc.models import generate_user_id
 from kyc.serializers.fields import PasswordField, normalize_phone, validate_person_name
 
 User = get_user_model()
+
 
 class AdminUserSerializer(serializers.ModelSerializer):
     """Read representation of a user for the management console."""

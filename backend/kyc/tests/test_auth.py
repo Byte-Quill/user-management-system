@@ -1,16 +1,25 @@
 """Domain-focused tests: auth."""
+
 from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory, APITestCase
-from kyc.common.throttles import LoginIPThrottle
 
-from kyc.tests.utils import FAST_PASSWORD_HASHERS, last_otp_code, make_user, register_payload, verify_via_api
+from kyc.common.throttles import LoginIPThrottle
+from kyc.tests.utils import (
+    FAST_PASSWORD_HASHERS,
+    last_otp_code,
+    make_user,
+    register_payload,
+    verify_via_api,
+)
 
 User = get_user_model()
+
 
 @FAST_PASSWORD_HASHERS
 class AuthTests(APITestCase):
@@ -148,18 +157,14 @@ class AuthTests(APITestCase):
             ("x@10minutemail.com", "+919876500013"),
         ]
         for email, phone in cases:
-            res = self.client.post(
-                "/api/auth/register/", register_payload(email, phone=phone)
-            )
+            res = self.client.post("/api/auth/register/", register_payload(email, phone=phone))
             self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, email)
             self.assertIn("email", res.data, email)
             self.assertFalse(User.objects.filter(email__iexact=email).exists(), email)
 
     def test_register_allows_normal_email(self):
         """A regular provider domain must not be caught by the blocklist."""
-        res = self.client.post(
-            "/api/auth/register/", register_payload("real.user@gmail.com")
-        )
+        res = self.client.post("/api/auth/register/", register_payload("real.user@gmail.com"))
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertTrue(User.objects.filter(email="real.user@gmail.com").exists())
 
@@ -303,12 +308,8 @@ class AuthTests(APITestCase):
         """A concurrent registration can pass the serializer's existence."""
         from django.db import IntegrityError
 
-        with mock.patch.object(
-            User.objects, "create_user", side_effect=IntegrityError("race")
-        ):
-            res = self.client.post(
-                "/api/auth/register/", register_payload("race@kyc.local")
-            )
+        with mock.patch.object(User.objects, "create_user", side_effect=IntegrityError("race")):
+            res = self.client.post("/api/auth/register/", register_payload("race@kyc.local"))
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_register_lowercases_email(self):
@@ -399,6 +400,7 @@ class AuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         self.assertNotIn("refresh_token", res.cookies)
+
     def test_throttle_ident_uses_last_xff_entry(self):
         """NUM_PROXIES=1: the trusted proxy appends the real client IP last,."""
         factory = APIRequestFactory()
@@ -408,6 +410,7 @@ class AuthTests(APITestCase):
         )
         clean = throttle.get_ident(Request(factory.get("/", REMOTE_ADDR="10.0.0.1")))
         self.assertEqual(spoofed, clean)
+
     def test_refresh_allows_same_origin_on_non_standard_port(self):
         """Browsers include non-standard ports in Origin. With the port."""
         make_user("new@kyc.local", User.Role.APPLICANT)
@@ -492,9 +495,7 @@ class TokenRevocationTests(APITestCase):
             "/api/auth/token/", {"email": "revoke@kyc.local", "password": "Passw0rd!"}
         )
         old_access = res.data["access"]
-        res = self.client.get(
-            "/api/auth/me/", HTTP_AUTHORIZATION=f"Bearer {old_access}"
-        )
+        res = self.client.get("/api/auth/me/", HTTP_AUTHORIZATION=f"Bearer {old_access}")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
         self.client.post("/api/auth/password-reset/request/", {"email": "revoke@kyc.local"})
@@ -508,9 +509,7 @@ class TokenRevocationTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
-        res = self.client.get(
-            "/api/auth/me/", HTTP_AUTHORIZATION=f"Bearer {old_access}"
-        )
+        res = self.client.get("/api/auth/me/", HTTP_AUTHORIZATION=f"Bearer {old_access}")
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
 
         res = self.client.post("/api/auth/token/refresh/")
@@ -562,9 +561,7 @@ class ManagerRegressionTests(APITestCase):
     """
 
     def test_create_superuser_accepts_email_kwarg(self):
-        user = User.objects.create_superuser(
-            email="root@kyc.local", password="S0perSecure!"
-        )
+        user = User.objects.create_superuser(email="root@kyc.local", password="S0perSecure!")
         self.assertTrue(user.is_staff)
         self.assertTrue(user.is_superuser)
         self.assertEqual(user.role, User.Role.SUPER_ADMIN)
@@ -574,9 +571,7 @@ class ManagerRegressionTests(APITestCase):
     def test_createsuperuser_command_works(self):
         from django.core.management import call_command
 
-        call_command(
-            "createsuperuser", "--email", "cli-admin@kyc.local", "--noinput", verbosity=0
-        )
+        call_command("createsuperuser", "--email", "cli-admin@kyc.local", "--noinput", verbosity=0)
         user = User.objects.get(email="cli-admin@kyc.local")
         self.assertTrue(user.is_staff)
         self.assertTrue(user.is_superuser)
@@ -584,9 +579,7 @@ class ManagerRegressionTests(APITestCase):
         self.assertFalse(user.has_usable_password())
 
     def test_create_user_without_username_generates_phin_id(self):
-        user = User.objects.create_user(
-            email="no-username@kyc.local", password="An0therPass!"
-        )
+        user = User.objects.create_user(email="no-username@kyc.local", password="An0therPass!")
         self.assertTrue(user.username.startswith("PHIN-"))
         self.assertFalse(user.is_staff)
 

@@ -1,5 +1,7 @@
 """Domain-focused tests: google auth."""
+
 from unittest import mock
+
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.models import SocialAccount, SocialLogin
 from allauth.socialaccount.providers.oauth2.client import OAuth2Error
@@ -8,11 +10,12 @@ from django.core.cache import cache
 from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
-from kyc.common.throttles import GoogleLoginThrottle
 
+from kyc.common.throttles import GoogleLoginThrottle
 from kyc.tests.utils import FAST_PASSWORD_HASHERS, make_user
 
 User = get_user_model()
+
 
 def _google_sociallogin(email="guser@gmail.com", uid="google-uid-1", verified=True):
     """Build an unsaved SocialLogin shaped like allauth's Google provider output."""
@@ -25,9 +28,7 @@ def _google_sociallogin(email="guser@gmail.com", uid="google-uid-1", verified=Tr
     account = SocialAccount(provider="google", uid=uid, extra_data={"email": email})
     sociallogin = SocialLogin(user=user, account=account, provider="google")
     if verified:
-        sociallogin.email_addresses = [
-            EmailAddress(email=email, verified=True, primary=True)
-        ]
+        sociallogin.email_addresses = [EmailAddress(email=email, verified=True, primary=True)]
     return sociallogin
 
 
@@ -90,9 +91,7 @@ class GoogleAuthTests(APITestCase):
         res = self.client.post(self.URL, {"credential": "fake-id-token"})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(User.objects.filter(email="guser@gmail.com").count(), 1)
-        self.assertTrue(
-            SocialAccount.objects.filter(user=existing, provider="google").exists()
-        )
+        self.assertTrue(SocialAccount.objects.filter(user=existing, provider="google").exists())
 
         res = self.client.post(
             "/api/auth/token/", {"email": "guser@gmail.com", "password": "Passw0rd!"}
@@ -105,9 +104,7 @@ class GoogleAuthTests(APITestCase):
         self._mock_verification(_google_sociallogin())
         res = self.client.post(self.URL, {"credential": "fake-id-token"})
         self.assertEqual(res.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(
-            SocialAccount.objects.filter(user=existing, provider="google").count(), 1
-        )
+        self.assertEqual(SocialAccount.objects.filter(user=existing, provider="google").count(), 1)
 
     def test_google_login_requires_verified_email(self):
         self._mock_verification(_google_sociallogin(verified=False))

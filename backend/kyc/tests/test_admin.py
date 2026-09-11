@@ -1,11 +1,13 @@
 """Domain-focused tests: admin."""
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
-from kyc.models import AuditLog, KYCApplication
 
+from kyc.models import AuditLog, KYCApplication
 from kyc.tests.utils import FAST_PASSWORD_HASHERS
 
 User = get_user_model()
+
 
 @FAST_PASSWORD_HASHERS
 @override_settings(

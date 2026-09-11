@@ -1,4 +1,5 @@
 """Application endpoints: CRUD, submit, documents, review, audit, download."""
+
 import logging
 import mimetypes
 from datetime import date
@@ -38,6 +39,7 @@ REVIEW_ACTION_MAP = {
     KYCApplication.Decision.REQUEST_RESUBMISSION: AuditLog.Action.RESUBMISSION_REQUESTED,
 }
 
+
 class KYCApplicationViewSet(viewsets.ModelViewSet):
     serializer_class = KYCApplicationSerializer
     permission_classes = (IsAuthenticated, IsOwnerOrReviewer)
@@ -68,9 +70,8 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         return context
 
     def get_queryset(self):
-        qs = (
-            KYCApplication.objects.select_related("applicant", "reviewer")
-            .prefetch_related("documents")
+        qs = KYCApplication.objects.select_related("applicant", "reviewer").prefetch_related(
+            "documents"
         )
         user = self.request.user
         if user.is_reviewer:
@@ -172,7 +173,6 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
                     detail=f"{doc_type}: {file_obj.name}",
                 )
         except Exception:
-
             try:
                 if document.file.name and document.file.name != file_obj.name:
                     document.file.delete(save=False)
@@ -195,7 +195,6 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
             try:
                 document = application.documents.get(pk=doc_id)
             except (Document.DoesNotExist, ValueError, DjangoValidationError) as exc:
-
                 raise NotFound("Document not found.") from exc
 
             doc_type = document.doc_type
@@ -241,6 +240,7 @@ class KYCApplicationViewSet(viewsets.ModelViewSet):
         serializer = AuditLogSerializer(page, many=True)
         return self.get_paginated_response(serializer.data)
 
+
 class DocumentDownloadView(APIView):
     """Serve a document behind a time-limited signed token."""
 
@@ -257,10 +257,8 @@ class DocumentDownloadView(APIView):
                 token, max_age=DOWNLOAD_TOKEN_MAX_AGE
             )
         except signing.BadSignature as exc:
-
             raise NotFound("Document not found.") from exc
         if signed_id != str(doc_id):
-
             raise NotFound("Document not found.")
         try:
             document = Document.objects.get(pk=doc_id)
@@ -273,8 +271,7 @@ class DocumentDownloadView(APIView):
         except (FileNotFoundError, ValueError) as exc:
             raise NotFound("Document not found.") from exc
         content_type = (
-            mimetypes.guess_type(document.original_filename)[0]
-            or "application/octet-stream"
+            mimetypes.guess_type(document.original_filename)[0] or "application/octet-stream"
         )
         response = FileResponse(handle, content_type=content_type)
 

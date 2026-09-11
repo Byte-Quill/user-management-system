@@ -1,4 +1,5 @@
 """Identity documents attached to applications, with storage cleanup."""
+
 import os
 import uuid
 
@@ -10,6 +11,7 @@ from django.dispatch import receiver
 
 from kyc.common.validators import validate_file_content
 from kyc.models.application import KYCApplication
+
 
 def document_upload_path(instance: "Document", filename: str):
     ext = os.path.splitext(filename)[1].lower()

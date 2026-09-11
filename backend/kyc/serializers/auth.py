@@ -1,4 +1,5 @@
 """Auth and account serializers: login, registration, own profile."""
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -17,6 +18,7 @@ from kyc.serializers.fields import (
 )
 
 User = get_user_model()
+
 
 class EmailTokenObtainPairSerializer(TokenObtainPairSerializer):
     """JWT serializer that authenticates with email (or phone) + password."""
@@ -40,9 +42,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     role = serializers.CharField(read_only=True)
     username = serializers.CharField(read_only=True)
 
-    email = serializers.EmailField(
-        required=False, allow_blank=True, allow_null=True, default=None
-    )
+    email = serializers.EmailField(required=False, allow_blank=True, allow_null=True, default=None)
 
     def validate_email(self, value):
 
@@ -79,12 +79,8 @@ class RegisterSerializer(serializers.ModelSerializer):
     )
     city = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
     state = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
-    postal_code = serializers.CharField(
-        max_length=20, required=False, allow_blank=True, default=""
-    )
-    country = serializers.CharField(
-        max_length=100, required=False, allow_blank=True, default=""
-    )
+    postal_code = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
+    country = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
 
     class Meta:
         model = User
@@ -108,6 +104,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             "country",
             "role",
         )
+
     def validate_first_name(self, value):
         return validate_person_name(value, "First name")
 

@@ -1,4 +1,5 @@
 """Custom authentication backends."""
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.backends import ModelBackend
 
@@ -19,7 +20,6 @@ class EmailOrPhoneBackend(ModelBackend):
         if "@" in identifier:
             user = UserModel.objects.filter(email__iexact=identifier).first()
         else:
-
             candidates = {legacy_phone_key(identifier)}
             try:
                 candidates.add(normalize_phone(identifier))
@@ -28,7 +28,6 @@ class EmailOrPhoneBackend(ModelBackend):
             user = UserModel.objects.filter(phone__in=candidates).first()
 
         if user is None:
-
             UserModel().set_password(password)
             return None
         if user.check_password(password) and self.user_can_authenticate(user):

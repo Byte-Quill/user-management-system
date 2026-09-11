@@ -1,4 +1,5 @@
 """Email OTP issuance and verification (signup verification + password reset)."""
+
 import hashlib
 import hmac
 import logging
@@ -68,7 +69,6 @@ def _send_otp_email(user, purpose: str, code: str) -> None:
     try:
         send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [user.email])
     except Exception:
-
         _log_email(user, purpose, subject, EmailLog.Status.FAILED)
         raise
     _log_email(user, purpose, subject, EmailLog.Status.SENT)
@@ -102,9 +102,9 @@ def _issue_otp_db(user, purpose: str):
     """DB-only issuance: invalidate predecessors and create the new row."""
     now = timezone.now()
 
-    EmailOTP.objects.filter(
-        user=user, purpose=purpose, consumed_at__isnull=True
-    ).update(consumed_at=now)
+    EmailOTP.objects.filter(user=user, purpose=purpose, consumed_at__isnull=True).update(
+        consumed_at=now
+    )
     code = generate_code()
     otp = EmailOTP.objects.create(
         user=user,
@@ -119,7 +119,6 @@ def _issue_otp_db(user, purpose: str):
 def issue_otp(user, purpose: str) -> EmailOTP:
     """Create a fresh OTP, send it, and invalidate any predecessor."""
     with transaction.atomic():
-
         User.objects.select_for_update().get(pk=user.pk)
         otp, code = _issue_otp_db(user, purpose)
     _send_otp_email(user, purpose, code)
@@ -131,7 +130,6 @@ def request_otp(user, purpose: str) -> bool:
     """Send an OTP unless the resend cooldown is still active."""
     code = None
     with transaction.atomic():
-
         User.objects.select_for_update().get(pk=user.pk)
         existing = latest_active(user, purpose)
         if (

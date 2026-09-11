@@ -1,4 +1,5 @@
 """Domain-focused tests: analytics."""
+
 from datetime import timedelta
 from unittest import mock
 
@@ -7,12 +8,13 @@ from django.core.cache import cache
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
+
 from kyc.models import EmailLog, EmailOTP, KYCApplication
 from kyc.services.otp import issue_otp
-
 from kyc.tests.utils import APP_PAYLOAD, FAST_PASSWORD_HASHERS, make_user, register_payload
 
 User = get_user_model()
+
 
 @FAST_PASSWORD_HASHERS
 class AnalyticsTests(APITestCase):
@@ -35,9 +37,7 @@ class AnalyticsTests(APITestCase):
         # backfill submitted_at: the 30-day submission KPI (computed on
         # submitted_at, not created_at) would otherwise ignore these apps.
         if status_value != KYCApplication.Status.DRAFT:
-            KYCApplication.objects.filter(pk=app.pk).update(
-                submitted_at=timezone.now()
-            )
+            KYCApplication.objects.filter(pk=app.pk).update(submitted_at=timezone.now())
             app.refresh_from_db()
         return app
 
@@ -71,9 +71,7 @@ class AnalyticsTests(APITestCase):
         self.assertEqual(res.data["approval_rate"], 75.0)
         self.assertEqual(res.data["pipeline"]["approved"], 3)
         self.assertEqual(res.data["pipeline"]["draft"], 0)
-        self.assertEqual(
-            set(res.data["pipeline"]), set(KYCApplication.Status.values)
-        )
+        self.assertEqual(set(res.data["pipeline"]), set(KYCApplication.Status.values))
         emails = res.data["email_activity"]
         self.assertEqual(emails["sent_last_30_days"], 1)
         self.assertEqual(emails["failed_last_30_days"], 1)

@@ -1,4 +1,5 @@
 """Seed demo users and a sample application for local development."""
+
 from datetime import date
 
 from django.conf import settings
@@ -28,7 +29,6 @@ class Command(BaseCommand):
                 "role": User.Role.SUPER_ADMIN,
                 "is_staff": True,
                 "is_superuser": True,
-
                 "email_verified": True,
             },
         )

@@ -1,4 +1,5 @@
 """Domain-focused tests: throttles."""
+
 from contextlib import ExitStack
 from unittest import mock
 
@@ -23,13 +24,9 @@ class ThrottleFailureTests(APITestCase):
     def _simulate_cache_outage(self) -> ExitStack:
 
         stack = ExitStack()
+        stack.enter_context(mock.patch("kyc.common.throttles.cache.add", return_value=False))
         stack.enter_context(
-            mock.patch("kyc.common.throttles.cache.add", return_value=False)
-        )
-        stack.enter_context(
-            mock.patch(
-                "kyc.common.throttles.cache.incr", side_effect=DatabaseError("cache down")
-            )
+            mock.patch("kyc.common.throttles.cache.incr", side_effect=DatabaseError("cache down"))
         )
         return stack
 
@@ -114,7 +111,5 @@ class OTPPerIPThrottleTests(APITestCase):
                 {"email": f"victim{i}@kyc.local"},
             )
             self.assertEqual(res.status_code, status.HTTP_200_OK)
-        res = self.client.post(
-            "/api/auth/password-reset/request/", {"email": "victim20@kyc.local"}
-        )
+        res = self.client.post("/api/auth/password-reset/request/", {"email": "victim20@kyc.local"})
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

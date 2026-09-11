@@ -1,10 +1,12 @@
 """Immutable audit trail for every application action."""
+
 import uuid
 
 from django.conf import settings
 from django.db import models
 
 from kyc.models.application import KYCApplication
+
 
 class AuditLog(models.Model):
     """Immutable record of every action taken on an application."""
@@ -50,6 +52,4 @@ class AuditLog(models.Model):
 
 def log_action(application, actor, action, detail=""):
     """Append an immutable audit entry for an application action."""
-    AuditLog.objects.create(
-        application=application, actor=actor, action=action, detail=detail
-    )
+    AuditLog.objects.create(application=application, actor=actor, action=action, detail=detail)

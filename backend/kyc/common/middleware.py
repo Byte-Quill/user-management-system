@@ -1,4 +1,5 @@
 """Request ID middleware for correlation logging."""
+
 import logging
 import re
 import threading

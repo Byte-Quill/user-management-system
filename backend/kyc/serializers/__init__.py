@@ -1,4 +1,5 @@
 """Serializers, re-exported so callers can ``from kyc.serializers import X``."""
+
 from kyc.serializers.applications import (  # noqa: F401
     AuditLogSerializer,
     DocumentSerializer,

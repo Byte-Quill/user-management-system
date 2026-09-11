@@ -1,5 +1,7 @@
 """DRF role/ownership permissions for the KYC API."""
+
 from rest_framework.permissions import SAFE_METHODS, BasePermission
+
 
 class IsReviewer(BasePermission):
     """Allow access only to reviewers (admins/super admins)."""

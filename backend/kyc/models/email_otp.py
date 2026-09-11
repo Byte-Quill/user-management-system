@@ -1,6 +1,8 @@
 """One-time email codes for signup verification and password reset."""
+
 from django.conf import settings
 from django.db import models
+
 
 class EmailOTP(models.Model):
     """One-time email codes for signup verification and password reset."""

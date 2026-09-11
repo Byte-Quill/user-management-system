@@ -1,10 +1,12 @@
 """Reviewer queue endpoint."""
+
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 
 from kyc.common.permissions import IsReviewer
 from kyc.models import KYCApplication
 from kyc.serializers import KYCApplicationSerializer
+
 
 class ReviewQueueView(generics.ListAPIView):
     """Reviewer-facing queue of applications awaiting a decision."""

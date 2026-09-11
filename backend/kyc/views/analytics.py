@@ -1,4 +1,5 @@
 """CEO analytics: KPIs, approval rate, pipeline breakdown, email activity."""
+
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
@@ -14,6 +15,7 @@ from kyc.serializers import EmailLogSerializer
 
 User = get_user_model()
 
+
 class AnalyticsView(APIView):
     """CEO analytics: KPIs, approval rate, pipeline breakdown, email activity."""
 
@@ -24,9 +26,7 @@ class AnalyticsView(APIView):
         last_30 = now - timedelta(days=30)
 
         total = KYCApplication.objects.count()
-        by_status = dict(
-            KYCApplication.objects.values_list("status").annotate(count=Count("id"))
-        )
+        by_status = dict(KYCApplication.objects.values_list("status").annotate(count=Count("id")))
         approved = by_status.get(KYCApplication.Status.APPROVED, 0)
         rejected = by_status.get(KYCApplication.Status.REJECTED, 0)
         decided = approved + rejected

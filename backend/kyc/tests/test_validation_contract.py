@@ -1,4 +1,5 @@
 """Assert the SPA validation contract still reflects the backend rules."""
+
 import json
 from io import StringIO
 

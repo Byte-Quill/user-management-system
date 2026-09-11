@@ -1,9 +1,11 @@
 """Domain-focused tests: applications."""
+
 import os
 import threading
 import time
 from datetime import date, timedelta
 from unittest import mock
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -12,11 +14,12 @@ from django.test import TransactionTestCase, skipUnlessDBFeature
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
-from kyc.models import Document, KYCApplication
 
+from kyc.models import Document, KYCApplication
 from kyc.tests.utils import APP_PAYLOAD, FAST_PASSWORD_HASHERS, make_user
 
 User = get_user_model()
+
 
 @FAST_PASSWORD_HASHERS
 class ApplicationFlowTests(APITestCase):
@@ -298,9 +301,7 @@ class ApplicationFlowTests(APITestCase):
             f"/api/applications/{app_id}/", {"full_name": "Changed After Submit"}
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            KYCApplication.objects.get(pk=app_id).full_name, "Jane Doe"
-        )
+        self.assertEqual(KYCApplication.objects.get(pk=app_id).full_name, "Jane Doe")
 
     def test_upload_rolls_back_file_on_audit_failure(self):
         """If anything after the storage write fails, the transaction rolls."""
@@ -311,8 +312,9 @@ class ApplicationFlowTests(APITestCase):
             b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF",
             content_type="application/pdf",
         )
-        with mock.patch("kyc.views.applications.log_action", side_effect=RuntimeError("audit down")):
-
+        with mock.patch(
+            "kyc.views.applications.log_action", side_effect=RuntimeError("audit down")
+        ):
             self.client.raise_request_exception = False
             try:
                 res = self.client.post(
@@ -345,15 +347,11 @@ class ApplicationFlowTests(APITestCase):
         self.auth(self.applicant)
         app_id = self.create_app()
         self.upload_doc(app_id)
-        KYCApplication.objects.filter(pk=app_id).update(
-            id_expiry=date.today() - timedelta(days=1)
-        )
+        KYCApplication.objects.filter(pk=app_id).update(id_expiry=date.today() - timedelta(days=1))
         res = self.client.post(f"/api/applications/{app_id}/submit/")
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("expired", str(res.data))
-        self.assertEqual(
-            KYCApplication.objects.get(pk=app_id).status, KYCApplication.Status.DRAFT
-        )
+        self.assertEqual(KYCApplication.objects.get(pk=app_id).status, KYCApplication.Status.DRAFT)
 
     def test_reviewer_cannot_review_own_application(self):
         """A reviewer must not decide their own submitted application."""
@@ -375,9 +373,7 @@ class ApplicationFlowTests(APITestCase):
             submitted_at=timezone.now(),
         )
         self.auth(reviewer)
-        res = self.client.post(
-            f"/api/applications/{app.pk}/review/", {"decision": "approve"}
-        )
+        res = self.client.post(f"/api/applications/{app.pk}/review/", {"decision": "approve"})
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         app.refresh_from_db()
         self.assertEqual(app.status, KYCApplication.Status.SUBMITTED)
@@ -409,9 +405,7 @@ class ConcurrencyTests(TransactionTestCase):
     def test_concurrent_submits_transition_once(self):
         """Two parallel submits must not both pass the draft-status check."""
         client = APIClient()
-        res = client.post(
-            "/api/auth/token/", {"email": "user@kyc.local", "password": "Passw0rd!"}
-        )
+        res = client.post("/api/auth/token/", {"email": "user@kyc.local", "password": "Passw0rd!"})
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
         res = client.post("/api/applications/", APP_PAYLOAD)
         app_id = res.data["id"]
@@ -451,9 +445,7 @@ class ConcurrencyTests(TransactionTestCase):
 
         def demote(actor_email, target_pk, results):
             client = APIClient()
-            res = client.post(
-                "/api/auth/token/", {"email": actor_email, "password": "Passw0rd!"}
-            )
+            res = client.post("/api/auth/token/", {"email": actor_email, "password": "Passw0rd!"})
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
             barrier.wait()
             results.append(
@@ -467,9 +459,7 @@ class ConcurrencyTests(TransactionTestCase):
         barrier = threading.Barrier(2)
         results = []
         threads = [
-            threading.Thread(
-                target=demote, args=("super@kyc.local", other.pk, results)
-            ),
+            threading.Thread(target=demote, args=("super@kyc.local", other.pk, results)),
             threading.Thread(
                 target=demote, args=("super2@kyc.local", self.super_admin.pk, results)
             ),
@@ -480,6 +470,4 @@ class ConcurrencyTests(TransactionTestCase):
             t.join()
 
         self.assertIn(status.HTTP_400_BAD_REQUEST, results)
-        self.assertTrue(
-            User.objects.filter(role=User.Role.SUPER_ADMIN, is_active=True).exists()
-        )
+        self.assertTrue(User.objects.filter(role=User.Role.SUPER_ADMIN, is_active=True).exists())

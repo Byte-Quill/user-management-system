@@ -1,14 +1,16 @@
 """Domain-focused tests: access."""
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
-from kyc.models import KYCApplication
 
+from kyc.models import KYCApplication
 from kyc.tests.utils import APP_PAYLOAD, FAST_PASSWORD_HASHERS, make_user
 
 User = get_user_model()
+
 
 @FAST_PASSWORD_HASHERS
 class RoleAccessTests(APITestCase):
@@ -22,9 +24,7 @@ class RoleAccessTests(APITestCase):
         self.ceo = make_user("ceo@kyc.local", User.Role.CEO)
 
     def auth(self, user):
-        res = self.client.post(
-            "/api/auth/token/", {"email": user.email, "password": "Passw0rd!"}
-        )
+        res = self.client.post("/api/auth/token/", {"email": user.email, "password": "Passw0rd!"})
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
 
     def statuses(self, url):
@@ -82,6 +82,4 @@ class RoleAccessTests(APITestCase):
     def test_anonymous_is_rejected(self):
         self.client.credentials()
         for url in ("/api/users/", "/api/analytics/", "/api/review-queue/"):
-            self.assertEqual(
-                self.client.get(url).status_code, status.HTTP_401_UNAUTHORIZED, url
-            )
+            self.assertEqual(self.client.get(url).status_code, status.HTTP_401_UNAUTHORIZED, url)

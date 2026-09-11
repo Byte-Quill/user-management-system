@@ -1,4 +1,5 @@
 """Django settings for the KYC-V3 backend."""
+
 import os
 import sys
 import urllib.parse
@@ -23,9 +24,7 @@ _KNOWN_WEAK_SECRETS = {
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY") or _BUILD_TIME_SENTINEL
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 
-if not DEBUG and (
-    SECRET_KEY in _KNOWN_WEAK_SECRETS or len(SECRET_KEY) < 50
-):
+if not DEBUG and (SECRET_KEY in _KNOWN_WEAK_SECRETS or len(SECRET_KEY) < 50):
     raise RuntimeError(
         "DJANGO_SECRET_KEY must be a strong, unique value (50+ chars) when "
         "DJANGO_DEBUG=false. Refusing to start with a known-weak or short key: "
@@ -51,9 +50,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
     "django.contrib.sites",
-
     "django.contrib.postgres",
     "allauth",
     "allauth.account",
@@ -74,7 +71,6 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-
     "allauth.account.middleware.AccountMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -170,12 +166,9 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    "DEFAULT_PERMISSION_CLASSES": (
-        "rest_framework.permissions.IsAuthenticated",
-    ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
-
     "DEFAULT_THROTTLE_CLASSES": (
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -193,9 +186,7 @@ REST_FRAMEWORK = {
         "documents": "30/hour",
         "review": "60/hour",
     },
-
     "EXCEPTION_HANDLER": "kyc.common.throttles.throttled_exception_handler",
-
     "NUM_PROXIES": int(os.environ.get("DJANGO_NUM_PROXIES", "1")),
 }
 
@@ -212,7 +203,6 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
-
     "CHECK_REVOKE_TOKEN": True,
 }
 
@@ -231,7 +221,6 @@ MAILERS = {
                 "use_tls": os.environ.get("EMAIL_USE_TLS", "true").lower() == "true",
                 "username": os.environ.get("EMAIL_HOST_USER", "resend"),
                 "password": os.environ.get("EMAIL_HOST_PASSWORD", ""),
-
                 "timeout": int(os.environ.get("EMAIL_TIMEOUT", "10")),
             }
             if not DEBUG
@@ -246,6 +235,34 @@ SITE_ID = 1
 
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+
+
+def build_secure_csp(google_client_id: str) -> dict:
+    """Content-Security-Policy for production (``DEBUG=false``) deployments.
+
+    Google Identity Services injects ``accounts.google.com/gsi/client`` at
+    runtime for the Sign-In button, which a strict ``'self'``-only
+    ``script-src`` would block. The GSI origins are permitted on the relevant
+    directives **only when a ``GOOGLE_CLIENT_ID`` is configured**, so the
+    policy stays minimal when the button is disabled.
+    """
+    google = ["https://accounts.google.com"] if google_client_id else []
+    csp = {
+        "default-src": [CSP.SELF],
+        "script-src": [CSP.SELF] + google,
+        # GSI injects inline <style> and fetches styles from accounts.google.com.
+        "style-src": [CSP.SELF, "'unsafe-inline'"] + google,
+        "img-src": [CSP.SELF, "data:", "https:"],
+        "font-src": [CSP.SELF, "data:"],
+        "connect-src": [CSP.SELF] + google,
+        # The GSI one-tap / button iframe lives on accounts.google.com.
+        **({"frame-src": google} if google_client_id else {}),
+        "frame-ancestors": [CSP.NONE],
+        "form-action": [CSP.SELF],
+        "base-uri": [CSP.SELF],
+    }
+    return csp
+
 
 ACCOUNT_EMAIL_VERIFICATION = "none"
 
@@ -270,13 +287,11 @@ JWT_AUTH_COOKIE_SAMESITE = "None" if (not DEBUG and SSL_ENABLED) else "Lax"
 
 CORS_ALLOWED_ORIGINS: list[str] = []
 if DEBUG:
-
     CORS_ALLOWED_ORIGINS += ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 CORS_ALLOW_CREDENTIALS = True
 
 if not DEBUG:
-
     custom_domain = os.environ.get("CUSTOM_DOMAIN")
     if custom_domain:
         CORS_ALLOWED_ORIGINS.append(f"https://{custom_domain}")
@@ -357,21 +372,4 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = SSL_ENABLED
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-    SECURE_CSP = {
-        "default-src": [CSP.SELF],
-        "script-src": [CSP.SELF]
-        + (["https://accounts.google.com"] if GOOGLE_CLIENT_ID else []),
-        # Google Identity Services injects inline <style> and fetches assets
-        # from accounts.google.com when the button is enabled.
-        "style-src": [CSP.SELF, "'unsafe-inline'"]
-        + (["https://accounts.google.com"] if GOOGLE_CLIENT_ID else []),
-        "img-src": [CSP.SELF, "data:", "https:"],
-        "font-src": [CSP.SELF, "data:"],
-        "connect-src": [CSP.SELF]
-        + (["https://accounts.google.com"] if GOOGLE_CLIENT_ID else []),
-        # The GSI one-tap / button iframe lives on accounts.google.com.
-        **({"frame-src": ["https://accounts.google.com"]} if GOOGLE_CLIENT_ID else {}),
-        "frame-ancestors": [CSP.NONE],
-        "form-action": [CSP.SELF],
-        "base-uri": [CSP.SELF],
-    }
+    SECURE_CSP = build_secure_csp(GOOGLE_CLIENT_ID)

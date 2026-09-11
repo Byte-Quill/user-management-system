@@ -1,12 +1,13 @@
 """Regenerate frontend/src/disposableEmails.ts from the SAME PyPI blocklist the
 backend uses, so the SPA mirror can never drift from the server rule."""
+
 from pathlib import Path
 
 from disposable_email_domains import blocklist
 
 domains = sorted(blocklist)
 
-header = '''/**
+header = """/**
  * Disposable / temporary email domain blocklist.
  *
  * AUTO-GENERATED from the `disposable-email-domains` PyPI package (the same
@@ -17,12 +18,12 @@ header = '''/**
  * backend remains the source of truth. Matching is on the exact domain part
  * of the address, case-insensitively.
  */
-'''
+"""
 
 lines = ",\n".join(f'  "{d}"' for d in domains)
 body = f"export const DISPOSABLE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([\n{lines},\n]);\n"
 
-footer = '''
+footer = """
 /** True when the address's domain is a known disposable provider. */
 export function isDisposableEmail(email: string): boolean {
   const at = email.lastIndexOf("@");
@@ -30,7 +31,7 @@ export function isDisposableEmail(email: string): boolean {
   const domain = email.slice(at + 1).trim().toLowerCase();
   return DISPOSABLE_EMAIL_DOMAINS.has(domain);
 }
-'''
+"""
 
 out = header + "\n" + body + footer
 path = Path(__file__).resolve().parents[2] / "frontend/src/data/disposableEmails.ts"

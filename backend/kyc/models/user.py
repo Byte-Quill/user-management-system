@@ -1,4 +1,5 @@
 """User accounts: custom user model with KYC roles and public IDs."""
+
 import secrets
 
 from django.contrib.auth.models import AbstractUser
@@ -7,7 +8,6 @@ from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-
 USER_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 USER_ID_PREFIX = "PHIN-"
 USER_ID_RANDOM_LENGTH = 8
@@ -15,7 +15,7 @@ USER_ID_RANDOM_LENGTH = 8
 
 def generate_user_id() -> str:
     """Return a unique, auto-generated public User ID (e.g. PHIN-A7K2M9X4)."""
-    for _ in range(10):
+    for _attempt in range(10):
         candidate = USER_ID_PREFIX + "".join(
             secrets.choice(USER_ID_ALPHABET) for _ in range(USER_ID_RANDOM_LENGTH)
         )
@@ -76,13 +76,9 @@ class User(AbstractUser):
     objects = UserManager()
 
     email = models.EmailField(null=True, blank=True, unique=True)
-    role = models.CharField(
-        max_length=20, choices=Role.choices, default=Role.APPLICANT
-    )
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.APPLICANT)
     middle_name = models.CharField(max_length=150, blank=True, default="")
-    gender = models.CharField(
-        max_length=20, choices=Gender.choices, blank=True, default=""
-    )
+    gender = models.CharField(max_length=20, choices=Gender.choices, blank=True, default="")
 
     phone = models.CharField(max_length=30, null=True, blank=True, unique=True)
 
@@ -101,7 +97,6 @@ class User(AbstractUser):
     REQUIRED_FIELDS = []
 
     class Meta:
-
         verbose_name = _("user")
         verbose_name_plural = _("users")
         indexes = [

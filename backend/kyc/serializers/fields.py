@@ -1,11 +1,11 @@
 """Shared serializer fields and validators (mirrors the SPA validation rules)."""
+
 import re
 from datetime import date
 
 import phonenumbers
 from phonenumbers import NumberParseException
 from rest_framework import serializers
-
 
 DOB_MIN = date(1900, 1, 1)
 

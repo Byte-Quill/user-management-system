@@ -1,8 +1,10 @@
 """Append-only record of transactional emails sent (verification, reset)."""
+
 import uuid
 
 from django.conf import settings
 from django.db import models
+
 
 class EmailLog(models.Model):
     """Append-only record of transactional emails sent (verification, reset)."""
@@ -30,9 +32,7 @@ class EmailLog(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["-created_at"], name="kyc_emaillo_created_idx")
-        ]
+        indexes = [models.Index(fields=["-created_at"], name="kyc_emaillo_created_idx")]
 
     def __str__(self):
         return f"EmailLog({self.purpose}, {self.status}, {self.recipient})"

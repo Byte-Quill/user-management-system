@@ -1,4 +1,5 @@
 """Domain-focused tests: users."""
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from rest_framework import status
@@ -7,6 +8,7 @@ from rest_framework.test import APITestCase
 from kyc.tests.utils import FAST_PASSWORD_HASHERS, make_user
 
 User = get_user_model()
+
 
 @FAST_PASSWORD_HASHERS
 class UserManagementTests(APITestCase):
@@ -125,9 +127,7 @@ class UserManagementTests(APITestCase):
             "/api/auth/token/", {"email": self.applicant.email, "password": "Passw0rd!"}
         )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertFalse(
-            BlacklistedToken.objects.filter(token__user=self.applicant).exists()
-        )
+        self.assertFalse(BlacklistedToken.objects.filter(token__user=self.applicant).exists())
 
         res = self.client.post(
             f"/api/users/{self.applicant.pk}/set_password/", {"new_password": "An0therPass!"}
@@ -148,9 +148,7 @@ class UserManagementTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
         res = self.client.get("/api/users/", {"search": "super"})
-        self.assertEqual(
-            [row["email"] for row in res.data["results"]], [self.super_admin.email]
-        )
+        self.assertEqual([row["email"] for row in res.data["results"]], [self.super_admin.email])
 
     def test_delete_is_not_allowed(self):
         res = self.client.delete(f"/api/users/{self.applicant.pk}/")

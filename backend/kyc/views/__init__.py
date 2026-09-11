@@ -1,4 +1,5 @@
 """API views, re-exported so urls.py has a single import surface."""
+
 from kyc.views.analytics import AnalyticsView  # noqa: F401
 from kyc.views.applications import (  # noqa: F401
     DocumentDownloadView,

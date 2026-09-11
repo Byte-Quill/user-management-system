@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from disposable_email_domains import blocklist as _BLOCKLIST
 
-
 DISPOSABLE_DOMAINS: frozenset[str] = frozenset(_BLOCKLIST)
 
 

@@ -5,12 +5,21 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+    env:
+      DATABASE_URL: "postgres://kyc:kyc@localhost:5432/kyc"
     services:
       postgres:
         image: postgres:18-alpine
@@ -34,7 +43,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt ruff pip-audit
+          pip install -r requirements.txt ruff==0.16.7 pip-audit==2.10.1
       - name: Lint (ruff)
         run: |
           ruff check .
@@ -45,22 +54,39 @@ jobs:
         run: python manage.py check
         env:
           DJANGO_DEBUG: "true"
-          DATABASE_URL: "postgres://kyc:kyc@localhost:5432/kyc"
+      - name: Migration drift check
+        # Fails when models and migrations disagree (issue #29 added a new
+        # migration — this keeps that drift from silently sneaking back).
+        run: python manage.py makemigrations --check --dry-run
+        env:
+          DJANGO_DEBUG: "true"
       - name: Django system check (production settings)
         # Exercised with DEBUG=false so production-only behavior (CSP, HSTS,
         # secure cookies, secret-key enforcement, deploy checks) is validated
-        # in CI and DEBUG=false-only regressions fail fast. See issue #28.
+        # in CI. GOOGLE_CLIENT_ID is set so the Google-enabled CSP directive
+        # set (issue #24) is actually built and checked here.
         run: python manage.py check --deploy
         env:
           DJANGO_DEBUG: "false"
           DJANGO_SECRET_KEY: "ci-only-random-key-0123456789abcdef0123456789abcdef012345"
           DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
-          DATABASE_URL: "postgres://kyc:kyc@localhost:5432/kyc"
-      - name: Run tests
+          GOOGLE_CLIENT_ID: "ci-google-client-id"
+      - name: Run tests (development settings)
         run: python manage.py test kyc
         env:
           DJANGO_DEBUG: "true"
-          DATABASE_URL: "postgres://kyc:kyc@localhost:5432/kyc"
+      - name: Run tests (production settings)
+        # The debug-mode run above cannot catch DEBUG=false-only regressions
+        # (CSP middleware, secure cookies, SECRET_KEY guard). This second run
+        # executes the whole suite with production settings. SECURE_SSL_REDIRECT
+        # is disabled so the test client is not 301-bounced to https; the Django
+        # test runner appends testserver to ALLOWED_HOSTS automatically.
+        run: python manage.py test kyc
+        env:
+          DJANGO_DEBUG: "false"
+          DJANGO_SECRET_KEY: "ci-only-random-key-0123456789abcdef0123456789abcdef012345"
+          DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
+          DJANGO_SECURE_SSL_REDIRECT: "false"
 
   frontend:
     runs-on: ubuntu-latest

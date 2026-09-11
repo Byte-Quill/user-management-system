@@ -6,7 +6,6 @@ from .models import AuditLog, Document, EmailLog, KYCApplication, User, log_acti
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-
     add_fieldsets = BaseUserAdmin.add_fieldsets + (
         (None, {"classes": ("wide",), "fields": ("email", "phone", "gender")}),
     )
@@ -30,7 +29,6 @@ class UserAdmin(BaseUserAdmin):
             },
         ),
         ("Role", {"fields": ("role",)}),
-
         ("Email verification", {"fields": ("email_verified",)}),
     )
     list_display = ("email", "username", "phone", "role", "email_verified", "is_staff")
@@ -75,13 +73,10 @@ class KYCApplicationAdmin(admin.ModelAdmin):
         old_status = None
         if change:
             old_status = (
-                KYCApplication.objects.filter(pk=obj.pk)
-                .values_list("status", flat=True)
-                .first()
+                KYCApplication.objects.filter(pk=obj.pk).values_list("status", flat=True).first()
             )
         super().save_model(request, obj, form, change)
         if not change:
-
             log_action(
                 obj,
                 request.user,
@@ -89,7 +84,6 @@ class KYCApplicationAdmin(admin.ModelAdmin):
                 detail="Created via Django admin",
             )
         elif old_status is not None and old_status != obj.status:
-
             log_action(
                 obj,
                 request.user,

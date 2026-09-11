@@ -1,4 +1,5 @@
 """DRF throttles: atomic fixed-window counters and scoped rate limits."""
+
 import hashlib
 import logging
 import math
@@ -27,7 +28,6 @@ def credential_throttle_key(prefix: str, email: str, ident: str) -> str:
     return f"{prefix}:{digest}:{ident}"
 
 
-
 class FixedWindowThrottle(BaseThrottle):
     """Shared atomic fixed-window counter for credential/OTP endpoints."""
 
@@ -40,13 +40,11 @@ class FixedWindowThrottle(BaseThrottle):
 
         self.reset_at = (bucket + 1) * window_seconds
         try:
-
             if cache.add(key, 1, window_seconds):
                 count = 1
             else:
                 count = cache.incr(key)
         except (ValueError, DatabaseError):
-
             logger.warning("%s throttle counter unavailable; denying request", key_prefix)
             if not cache.add(key, 1, window_seconds):
                 return False
@@ -130,7 +128,6 @@ class WriteThrottle(ScopedRateThrottle):
 
     def get_cache_key(self, request, view):
         if request.user and request.user.is_authenticated:
-
             return f"write-throttle:{request.user.pk}:{self.scope}"
 
         ident = self.get_ident(request)

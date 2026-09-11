@@ -1,4 +1,5 @@
 """Shared fixtures and helpers for the kyc test-suite."""
+
 import re
 
 from django.contrib.auth import get_user_model

@@ -1,8 +1,10 @@
 """Content-sniffing upload validators (magic-byte checks)."""
+
 import os
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
+
 
 def validate_file_content(file_obj: UploadedFile):
     """Validate the file's content matches its extension (magic-byte sniff)."""
@@ -11,7 +13,6 @@ def validate_file_content(file_obj: UploadedFile):
     file_obj.seek(0)
 
     if ext in (".jpg", ".jpeg"):
-
         if not head.startswith(b"\xff\xd8\xff"):
             raise ValidationError("File content does not match the '.jpg/.jpeg' extension.")
         file_obj.seek(max(0, file_obj.size - 4096))
@@ -25,7 +26,6 @@ def validate_file_content(file_obj: UploadedFile):
             raise ValidationError("File content does not match the '.png' extension.")
 
     elif ext == ".pdf":
-
         if not head.startswith(b"%PDF-"):
             raise ValidationError("File content does not match the '.pdf' extension.")
         file_obj.seek(max(0, file_obj.size - 1024))

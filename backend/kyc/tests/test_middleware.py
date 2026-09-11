@@ -1,5 +1,7 @@
 """Domain-focused tests: middleware."""
+
 from django.test import TestCase
+
 
 class RequestIDMiddlewareTests(TestCase):
     def test_malicious_request_id_is_replaced(self):

@@ -1,4 +1,5 @@
 """Application, document, audit and review serializers."""
+
 from datetime import date
 
 from rest_framework import serializers
@@ -6,6 +7,7 @@ from rest_framework import serializers
 from kyc.common.tokens import document_download_token
 from kyc.models import AuditLog, Document, EmailLog, KYCApplication
 from kyc.serializers.fields import normalize_phone, validate_dob
+
 
 class DocumentSerializer(serializers.ModelSerializer):
     file = serializers.SerializerMethodField()
@@ -42,9 +44,7 @@ class KYCApplicationSerializer(serializers.ModelSerializer):
     documents = DocumentSerializer(many=True, read_only=True)
 
     applicant_id = serializers.IntegerField(source="applicant.id", read_only=True)
-    applicant_email = serializers.EmailField(
-        source="applicant.email", read_only=True, default=None
-    )
+    applicant_email = serializers.EmailField(source="applicant.email", read_only=True, default=None)
     reviewer_email = serializers.EmailField(source="reviewer.email", read_only=True, default=None)
 
     class Meta:
@@ -101,7 +101,6 @@ class KYCApplicationSerializer(serializers.ModelSerializer):
     def validate_phone(self, value):
         trimmed = value.strip()
         try:
-
             return normalize_phone(trimmed)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc)) from exc
@@ -112,9 +111,7 @@ class KYCApplicationSerializer(serializers.ModelSerializer):
             return attrs
 
         if self.instance and self.instance.status not in KYCApplication.EDITABLE_STATUSES:
-            raise serializers.ValidationError(
-                "This application can no longer be edited."
-            )
+            raise serializers.ValidationError("This application can no longer be edited.")
         return attrs
 
 
@@ -123,14 +120,19 @@ class ReviewSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate(self, attrs):
-        if attrs["decision"] in (
-            KYCApplication.Decision.REJECT,
-            KYCApplication.Decision.REQUEST_RESUBMISSION,
-        ) and not attrs["notes"].strip():
+        if (
+            attrs["decision"]
+            in (
+                KYCApplication.Decision.REJECT,
+                KYCApplication.Decision.REQUEST_RESUBMISSION,
+            )
+            and not attrs["notes"].strip()
+        ):
             raise serializers.ValidationError(
                 {"notes": "Notes are required when rejecting or requesting resubmission."}
             )
         return attrs
+
 
 class EmailLogSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source="user.email", read_only=True, default=None)

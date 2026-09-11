@@ -12,7 +12,6 @@ from django.db import DatabaseError, connections, router, transaction
 from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now as tz_now
 
-
 CLEANUP_INTERVAL = 300
 
 _last_cleanup = 0.0
@@ -82,7 +81,6 @@ class LightweightDatabaseCache(BaseDatabaseCache):
             return default
         value, expires = row
         if self._to_datetime(expires) < tz_now():
-
             return default
         return self._decode(value)
 
@@ -106,7 +104,6 @@ class LightweightDatabaseCache(BaseDatabaseCache):
                     [key, encoded, exp],
                 )
         except DatabaseError:
-
             return False
         return True
 
@@ -134,7 +131,6 @@ class LightweightDatabaseCache(BaseDatabaseCache):
                 )
                 inserted = bool(cursor.rowcount)
         except DatabaseError:
-
             return False
         return inserted
 

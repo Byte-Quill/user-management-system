@@ -1,8 +1,11 @@
 """Domain-focused tests: cache."""
+
 import time
+
 from allauth.socialaccount.providers.oauth2.client import OAuth2Error
 from django.core.cache import cache
 from django.test import TestCase
+
 
 class LightweightCacheTests(TestCase):
     """Regression tests for kyc.common.cache.LightweightDatabaseCache."""

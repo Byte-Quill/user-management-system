@@ -1,4 +1,5 @@
 """API route table. Views are grouped per domain in ``kyc/views/``."""
+
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 

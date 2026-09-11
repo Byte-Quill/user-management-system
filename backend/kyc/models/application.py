@@ -1,4 +1,5 @@
 """KYC application aggregate: identity data, statuses and review workflow."""
+
 import uuid
 
 from django.conf import settings
@@ -76,7 +77,6 @@ class KYCApplication(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["applicant", "status"], name="kyc_app_applicant_status_idx"),
-
             models.Index(fields=["status", "-created_at"], name="kyc_app_status_created_idx"),
         ]
 
@@ -109,6 +109,4 @@ class KYCApplication(models.Model):
         self.reviewer = reviewer
         self.review_notes = notes
         self.reviewed_at = timezone.now()
-        self.save(
-            update_fields=["status", "reviewer", "review_notes", "reviewed_at", "updated_at"]
-        )
+        self.save(update_fields=["status", "reviewer", "review_notes", "reviewed_at", "updated_at"])

@@ -1,7 +1,9 @@
 """Domain-focused tests: email otp."""
+
 import threading
 from datetime import timedelta
 from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
@@ -9,11 +11,18 @@ from django.test import TransactionTestCase, skipUnlessDBFeature
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
-from kyc.models import EmailOTP
 
-from kyc.tests.utils import FAST_PASSWORD_HASHERS, last_otp_code, make_user, register_payload, verify_via_api
+from kyc.models import EmailOTP
+from kyc.tests.utils import (
+    FAST_PASSWORD_HASHERS,
+    last_otp_code,
+    make_user,
+    register_payload,
+    verify_via_api,
+)
 
 User = get_user_model()
+
 
 @FAST_PASSWORD_HASHERS
 class EmailOTPTests(APITestCase):
@@ -45,9 +54,7 @@ class EmailOTPTests(APITestCase):
         self.register()
         code = last_otp_code()
         wrong = ("0" if code[0] != "0" else "1") * 6
-        res = self.client.post(
-            "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": wrong}
-        )
+        res = self.client.post("/api/auth/verify-email/", {"email": "otp@kyc.local", "code": wrong})
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
         self.register("otp2@kyc.local", phone="+919876500002")
@@ -56,9 +63,7 @@ class EmailOTPTests(APITestCase):
         EmailOTP.objects.filter(user__email="otp2@kyc.local").update(
             expires_at=timezone.now() - timedelta(seconds=1)
         )
-        res = self.client.post(
-            "/api/auth/verify-email/", {"email": "otp2@kyc.local", "code": code}
-        )
+        res = self.client.post("/api/auth/verify-email/", {"email": "otp2@kyc.local", "code": code})
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_otp_is_single_use_and_predecessor_invalidated(self):
@@ -89,13 +94,9 @@ class EmailOTPTests(APITestCase):
         code = last_otp_code()
         wrong = ("0" if code[0] != "0" else "1") * 6
         for _ in range(5):
-            self.client.post(
-                "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": wrong}
-            )
+            self.client.post("/api/auth/verify-email/", {"email": "otp@kyc.local", "code": wrong})
 
-        res = self.client.post(
-            "/api/auth/verify-email/", {"email": "otp@kyc.local", "code": code}
-        )
+        res = self.client.post("/api/auth/verify-email/", {"email": "otp@kyc.local", "code": code})
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_resend_is_enumeration_safe_and_cooldown_enforced(self):
@@ -120,9 +121,7 @@ class EmailOTPTests(APITestCase):
 
     def test_password_reset_flow(self):
         user = make_user("reset@kyc.local", User.Role.APPLICANT)
-        res = self.client.post(
-            "/api/auth/password-reset/request/", {"email": "reset@kyc.local"}
-        )
+        res = self.client.post("/api/auth/password-reset/request/", {"email": "reset@kyc.local"})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(mail.outbox), 1)
 
@@ -144,9 +143,7 @@ class EmailOTPTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
     def test_password_reset_request_is_enumeration_safe(self):
-        res = self.client.post(
-            "/api/auth/password-reset/request/", {"email": "ghost@kyc.local"}
-        )
+        res = self.client.post("/api/auth/password-reset/request/", {"email": "ghost@kyc.local"})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(mail.outbox), 0)
 
@@ -191,9 +188,7 @@ class EmailOTPTests(APITestCase):
             role=User.Role.APPLICANT,
             email_verified=True,
         )
-        self.client.post(
-            "/api/auth/password-reset/request/", {"email": "google-only@kyc.local"}
-        )
+        self.client.post("/api/auth/password-reset/request/", {"email": "google-only@kyc.local"})
         res = self.client.post(
             "/api/auth/password-reset/confirm/",
             {
@@ -208,17 +203,13 @@ class EmailOTPTests(APITestCase):
 
     @mock.patch("kyc.common.throttles.OTPRequestThrottle.allow_request", return_value=False)
     def test_otp_request_throttle_returns_429(self, _mock):
-        res = self.client.post(
-            "/api/auth/password-reset/request/", {"email": "otp@kyc.local"}
-        )
+        res = self.client.post("/api/auth/password-reset/request/", {"email": "otp@kyc.local"})
         self.assertEqual(res.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @mock.patch("kyc.views.auth.issue_otp", side_effect=RuntimeError("smtp down"))
     def test_register_survives_email_send_failure(self, _mock):
         """An email outage must not turn signup into a 500: the account is."""
-        res = self.client.post(
-            "/api/auth/register/", register_payload("outage@kyc.local")
-        )
+        res = self.client.post("/api/auth/register/", register_payload("outage@kyc.local"))
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         user = User.objects.get(email="outage@kyc.local")
         self.assertFalse(user.email_verified)
@@ -233,13 +224,9 @@ class EmailOTPTests(APITestCase):
     def test_resend_and_reset_request_survive_email_send_failure(self, _mock):
         """Send failures keep the generic 200 (enumeration safety) instead of."""
         self.register()
-        res = self.client.post(
-            "/api/auth/verify-email/resend/", {"email": "otp@kyc.local"}
-        )
+        res = self.client.post("/api/auth/verify-email/resend/", {"email": "otp@kyc.local"})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        res = self.client.post(
-            "/api/auth/password-reset/request/", {"email": "otp@kyc.local"}
-        )
+        res = self.client.post("/api/auth/password-reset/request/", {"email": "otp@kyc.local"})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
 
@@ -250,9 +237,7 @@ class OTPResendConcurrencyTests(TransactionTestCase):
 
     def test_concurrent_resends_send_one_email(self):
         client = APIClient()
-        res = client.post(
-            "/api/auth/register/", register_payload("race@kyc.local")
-        )
+        res = client.post("/api/auth/register/", register_payload("race@kyc.local"))
         assert res.status_code == 201, res.content
 
         EmailOTP.objects.filter(user__email="race@kyc.local").update(last_sent_at=None)
@@ -273,8 +258,6 @@ class OTPResendConcurrencyTests(TransactionTestCase):
         self.assertEqual(len(mail.outbox), sent_before + 1)
 
         self.assertEqual(
-            EmailOTP.objects.filter(
-                user__email="race@kyc.local", consumed_at__isnull=True
-            ).count(),
+            EmailOTP.objects.filter(user__email="race@kyc.local", consumed_at__isnull=True).count(),
             1,
         )

@@ -1,6 +1,6 @@
 """Stateless signed tokens for document downloads (HMAC via TimestampSigner)."""
-from django.core.signing import TimestampSigner
 
+from django.core.signing import TimestampSigner
 
 DOWNLOAD_TOKEN_SALT = "kyc.document-download"
 
@@ -26,9 +26,7 @@ def revoke_user_sessions(user) -> int:
     from rest_framework_simplejwt.tokens import RefreshToken
 
     revoked = 0
-    outstanding = OutstandingToken.objects.filter(
-        user=user, expires_at__gt=timezone.now()
-    )
+    outstanding = OutstandingToken.objects.filter(user=user, expires_at__gt=timezone.now())
     for token in outstanding:
         try:
             RefreshToken(token.token).blacklist()

@@ -1,4 +1,5 @@
 """Emit the SPA validation contract (singleton source of truth) as JSON."""
+
 import json
 
 from django.conf import settings

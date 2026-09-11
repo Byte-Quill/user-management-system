@@ -1,4 +1,5 @@
 """JWT auth views that store the refresh token in an HttpOnly cookie."""
+
 import logging
 import re
 
@@ -77,7 +78,6 @@ def origin_allowed(request) -> bool:
     """Return True when the request Origin (if any) is safe for cookie auth."""
     origin = request.headers.get("Origin")
     if not origin:
-
         return True
 
     if origin == f"{request.scheme}://{request.get_host()}":
@@ -86,7 +86,6 @@ def origin_allowed(request) -> bool:
     if origin in allowed:
         return True
     for pattern in getattr(settings, "CORS_ALLOWED_ORIGIN_REGEXES", []):
-
         if re.fullmatch(pattern, origin):
             return True
     return False
@@ -122,7 +121,6 @@ class CookieTokenRefreshView(TokenRefreshView):
 
         refresh = request.COOKIES.get(COOKIE_NAME) or request.data.get("refresh")
         if not refresh:
-
             return Response(
                 {"detail": "No refresh token provided."},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -139,11 +137,9 @@ class CookieTokenRefreshView(TokenRefreshView):
                 token = None
             if token is not None:
                 user = User.objects.filter(pk=token["user_id"]).first()
-                if (
-                    user is None
-                    or token.get(jwt_settings.REVOKE_TOKEN_CLAIM)
-                    != get_md5_hash_password(user.password)
-                ):
+                if user is None or token.get(
+                    jwt_settings.REVOKE_TOKEN_CLAIM
+                ) != get_md5_hash_password(user.password):
                     logger.warning(
                         "Refresh rejected after password change for user %s",
                         token["user_id"],
@@ -160,7 +156,6 @@ class CookieTokenRefreshView(TokenRefreshView):
             if new_refresh:
                 _set_refresh_cookie(response, new_refresh)
         elif response.status_code == status.HTTP_401_UNAUTHORIZED:
-
             _delete_refresh_cookie(response)
         return response
 
@@ -191,9 +186,7 @@ def _resolve_google_user(request, sociallogin):
     uid = sociallogin.account.uid
 
     existing = (
-        SocialAccount.objects.filter(provider=provider, uid=uid)
-        .select_related("user")
-        .first()
+        SocialAccount.objects.filter(provider=provider, uid=uid).select_related("user").first()
     )
     if existing:
         return existing.user
@@ -208,7 +201,9 @@ def _resolve_google_user(request, sociallogin):
             )
         with transaction.atomic():
             SocialAccount.objects.create(
-                user=user, provider=provider, uid=uid,
+                user=user,
+                provider=provider,
+                uid=uid,
                 extra_data=sociallogin.account.extra_data,
             )
 
@@ -225,17 +220,19 @@ def _resolve_google_user(request, sociallogin):
             first_name=sociallogin.user.first_name,
             last_name=sociallogin.user.last_name,
             role=User.Role.APPLICANT,
-
             email_verified=True,
         )
         SocialAccount.objects.create(
-            user=user, provider=provider, uid=uid,
+            user=user,
+            provider=provider,
+            uid=uid,
             extra_data=sociallogin.account.extra_data,
         )
 
         has_primary = EmailAddress.objects.filter(user=user, primary=True).exists()
         EmailAddress.objects.get_or_create(
-            user=user, email=email.lower(),
+            user=user,
+            email=email.lower(),
             defaults={"verified": True, "primary": not has_primary},
         )
     return user
@@ -291,7 +288,6 @@ class GoogleAuthView(APIView):
                     user = _resolve_google_user(request, sociallogin)
                 break
             except IntegrityError:
-
                 continue
             except DjangoValidationError as exc:
                 return Response({"detail": exc.messages[0]}, status=status.HTTP_409_CONFLICT)
@@ -335,9 +331,7 @@ class VerifyEmailView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         user = _find_user_by_email(email)
-        if user is None or not verify_otp(
-            user, EmailOTP.Purpose.VERIFY_EMAIL, code
-        ):
+        if user is None or not verify_otp(user, EmailOTP.Purpose.VERIFY_EMAIL, code):
             return Response(
                 {"detail": "Invalid or expired code."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -361,7 +355,6 @@ class ResendVerificationView(APIView):
             try:
                 request_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
             except Exception:
-
                 logger.exception("Verification resend failed for user %s", user.pk)
         return Response({"detail": "If the account needs verification, a code was sent."})
 
@@ -378,11 +371,8 @@ class PasswordResetRequestView(APIView):
             try:
                 request_otp(user, EmailOTP.Purpose.RESET_PASSWORD)
             except Exception:
-
                 logger.exception("Password-reset OTP send failed for user %s", user.pk)
-        return Response(
-            {"detail": "If an account exists for that email, a reset code was sent."}
-        )
+        return Response({"detail": "If an account exists for that email, a reset code was sent."})
 
 
 class PasswordResetConfirmView(APIView):
@@ -401,9 +391,7 @@ class PasswordResetConfirmView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         user = _find_user_by_email(email)
-        if user is None or not verify_otp(
-            user, EmailOTP.Purpose.RESET_PASSWORD, code
-        ):
+        if user is None or not verify_otp(user, EmailOTP.Purpose.RESET_PASSWORD, code):
             return Response(
                 {"detail": "Invalid or expired code."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -411,9 +399,7 @@ class PasswordResetConfirmView(APIView):
         try:
             validate_password(password, user=user)
         except DjangoValidationError as exc:
-            return Response(
-                {"new_password": exc.messages}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"new_password": exc.messages}, status=status.HTTP_400_BAD_REQUEST)
         user.set_password(password)
         if not user.email_verified:
             user.email_verified = True
@@ -434,15 +420,11 @@ class RegisterView(generics.CreateAPIView):
         try:
             user = serializer.save()
         except IntegrityError as exc:
-
-            raise ValidationError(
-                "An account with these details already exists."
-            ) from exc
+            raise ValidationError("An account with these details already exists.") from exc
 
         if not user.email:
             return
         try:
             issue_otp(user, EmailOTP.Purpose.VERIFY_EMAIL)
         except Exception:
-
             logger.exception("Failed to send verification email to %s", user.email)

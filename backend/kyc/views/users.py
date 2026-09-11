@@ -1,4 +1,5 @@
 """Own-profile and SUPER_ADMIN user-management endpoints."""
+
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, models, transaction
 from rest_framework import generics, viewsets
@@ -18,6 +19,7 @@ from kyc.serializers import (
 )
 
 User = get_user_model()
+
 
 class MeView(generics.RetrieveAPIView):
     serializer_class = UserSerializer
@@ -62,16 +64,12 @@ class UserManagementViewSet(viewsets.ModelViewSet):
         try:
             serializer.save()
         except IntegrityError as exc:
-
-            raise ValidationError(
-                "An account with these details already exists."
-            ) from exc
+            raise ValidationError("An account with these details already exists.") from exc
 
     def perform_update(self, serializer):
         if serializer.instance.pk == self.request.user.pk:
             raise ValidationError("You cannot change your own role or status.")
         with transaction.atomic():
-
             list(
                 User.objects.select_for_update()
                 .filter(role=User.Role.SUPER_ADMIN, is_active=True)
@@ -79,21 +77,15 @@ class UserManagementViewSet(viewsets.ModelViewSet):
                 .values_list("pk", flat=True)
             )
             serializer.save()
-            if not User.objects.filter(
-                role=User.Role.SUPER_ADMIN, is_active=True
-            ).exists():
-                raise ValidationError(
-                    "Cannot demote or deactivate the last active super admin."
-                )
+            if not User.objects.filter(role=User.Role.SUPER_ADMIN, is_active=True).exists():
+                raise ValidationError("Cannot demote or deactivate the last active super admin.")
 
     @action(detail=True, methods=["post"])
     def set_password(self, request, pk=None):
         user = self.get_object()
         if user.pk == request.user.pk:
             raise ValidationError("You cannot reset your own password here.")
-        serializer = SetPasswordSerializer(
-            data=request.data, context={"user": user}
-        )
+        serializer = SetPasswordSerializer(data=request.data, context={"user": user})
         serializer.is_valid(raise_exception=True)
 
         user.set_password(serializer.validated_data["new_password"])
