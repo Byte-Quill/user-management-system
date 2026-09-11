@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
  */
 export function Card({ className = "", children }: { className?: string; children: ReactNode }) {
   return (
-    <section className={`rounded-2xl border border-ink-200/70 bg-white shadow-card ${className}`.trim()}>
+    <section className={`rounded-xl border border-ink-200 bg-white shadow-xs ${className}`.trim()}>
       {children}
     </section>
   );

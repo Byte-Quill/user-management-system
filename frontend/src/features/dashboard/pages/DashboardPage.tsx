@@ -72,7 +72,7 @@ export default function DashboardPage() {
           <Link
             key={app.id}
             to={`/applications/${app.id}`}
-            className="group flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md"
+            className="group flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-xs transition hover:border-slate-300"
           >
             <div className="min-w-0">
               <p className="truncate font-semibold text-slate-900">{app.full_name}</p>
@@ -90,7 +90,7 @@ export default function DashboardPage() {
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <StatusBadge status={app.status} />
-              <IconChevronRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-blue-500" />
+              <IconChevronRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500" />
             </div>
           </Link>
         ))}

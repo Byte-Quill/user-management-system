@@ -23,7 +23,7 @@ const SIZES = {
 } as const;
 
 const BASE =
-  "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60";
 
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {

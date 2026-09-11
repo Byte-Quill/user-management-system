@@ -83,6 +83,16 @@ export default function AppShell() {
     navigate("/login");
   };
 
+  const sectionLabel = location.pathname.startsWith("/review")
+    ? "Review queue"
+    : location.pathname.startsWith("/users")
+      ? "User management"
+      : location.pathname.startsWith("/analytics")
+        ? "Analytics"
+        : location.pathname.startsWith("/applications")
+          ? "KYC applications"
+          : "Dashboard";
+
   const displayName =
     [user?.first_name, user?.last_name].filter(Boolean).join(" ") || user?.username || "";
   const initials = (displayName[0] ?? user?.username?.[0] ?? "?").toUpperCase();
@@ -99,7 +109,7 @@ export default function AppShell() {
   const rail = (
     <div className="flex h-full flex-col">
       <Link to="/" className="flex items-center gap-2.5 px-3 pb-2 pt-1" aria-label="Login Portal home">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white shadow-md shadow-brand-600/30">
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-ink-900 text-sm font-bold text-white">
           LP
         </span>
         <span className="leading-tight">
@@ -157,7 +167,7 @@ export default function AppShell() {
           <span className="flex items-center gap-3 rounded-xl px-3 py-2">
             <span
               title={user?.email ?? user?.phone ?? user?.username}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-xs font-bold text-white"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-ink-700 text-xs font-bold text-white"
             >
               {initials}
             </span>
@@ -186,34 +196,38 @@ export default function AppShell() {
   );
   return (
     <div className="min-h-screen bg-ink-50">
-      <header className="sticky top-0 z-40 border-b border-ink-200/70 bg-white/85 backdrop-blur-md">
+      <header className="sticky top-0 z-40 border-b border-ink-200 bg-white">
         <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open navigation"
-            className="rounded-xl p-2 text-ink-600 transition hover:bg-ink-100 lg:hidden"
+            className="rounded-lg p-2 text-ink-600 transition hover:bg-ink-100 lg:hidden"
           >
             <span aria-hidden="true">{ICONS.menu}</span>
           </button>
           <Link to="/" className="flex items-center gap-2.5 lg:hidden">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 text-xs font-bold text-white">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink-900 text-xs font-bold text-white">
               LP
             </span>
             <span className="text-[15px] font-bold tracking-tight text-ink-900">Login Portal</span>
           </Link>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200 sm:inline-flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-              All systems normal
+          <div className="ml-auto flex items-center gap-3">
+            <span className="hidden text-xs font-medium text-ink-400 sm:block">
+              {sectionLabel}
             </span>
             {user && (
-              <span className="hidden items-center gap-2 rounded-full border border-ink-200/80 bg-white py-1 pl-1 pr-3 shadow-xs md:inline-flex">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-[10px] font-bold text-white">
+              <span className="hidden items-center gap-2.5 md:flex">
+                <span className="flex h-7 w-7 items-center justify-center rounded-md bg-ink-900 text-[10px] font-bold text-white">
                   {initials}
                 </span>
-                <span className="max-w-40 truncate text-xs font-semibold text-ink-800">
-                  {displayName}
+                <span className="leading-tight">
+                  <span className="block max-w-40 truncate text-xs font-semibold text-ink-900">
+                    {displayName}
+                  </span>
+                  <span className="block text-[10px] text-ink-400">
+                    {user ? ROLE_LABELS[user.role] ?? user.role : ""}
+                  </span>
                 </span>
               </span>
             )}
@@ -222,14 +236,14 @@ export default function AppShell() {
       </header>
 
       <div className="mx-auto flex max-w-7xl items-start gap-6 px-4 py-6 sm:px-6">
-        <aside className="sticky top-24 hidden w-64 shrink-0 self-start rounded-2xl border border-ink-200/70 bg-white py-3 shadow-card lg:block">
+        <aside className="sticky top-24 hidden w-64 shrink-0 self-start rounded-xl border border-ink-200 bg-white py-3 shadow-xs lg:block">
           {rail}
         </aside>
 
         {sidebarOpen && (
           <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
             <div
-              className="absolute inset-0 bg-ink-950/45 backdrop-blur-[2px] motion-safe:animate-fade-in"
+              className="absolute inset-0 bg-ink-950/45 motion-safe:animate-fade-in"
               onClick={() => setSidebarOpen(false)}
               aria-hidden="true"
             />

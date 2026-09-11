@@ -32,7 +32,7 @@ export function DrawerShell({
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={title}>
       <div
-        className="absolute inset-0 bg-ink-950/45 backdrop-blur-[2px] motion-safe:animate-fade-in"
+        className="absolute inset-0 bg-ink-950/45 motion-safe:animate-fade-in"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -56,7 +56,7 @@ export function DrawerShell({
         </div>
         <div className="flex-1 px-6 py-5">{children}</div>
         {footer && (
-          <div className="sticky bottom-0 border-t border-ink-100 bg-white/95 px-6 py-4 backdrop-blur">
+          <div className="sticky bottom-0 border-t border-ink-100 bg-white px-6 py-4">
             {footer}
           </div>
         )}

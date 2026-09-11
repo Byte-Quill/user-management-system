@@ -37,7 +37,7 @@ export function Field({ label, error, hint, valid, children }: FieldProps) {
 }
 
 const baseInputClass =
-  "w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm text-ink-900 shadow-xs outline-none transition placeholder:text-ink-300 hover:border-ink-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400";
+  "w-full rounded-lg border bg-white px-3 py-2 text-sm text-ink-900 shadow-xs outline-none transition placeholder:text-ink-300 hover:border-ink-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400";
 
 function inputClass(invalid: boolean, extra?: string): string {
   const tone = invalid
