@@ -197,12 +197,12 @@ export default function LoginPage() {
           </p>
         </div>
         <p className="mt-4 text-center text-xs text-slate-400">
-          By signing in you agree <a
-            href="/terms"
+          By signing in you agree <Link
+            to="/terms"
             className="text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-700 hover:decoration-slate-500"
           >
             Terms &amp; Conditions
-          </a>
+          </Link>
           .
         </p>
       </div>

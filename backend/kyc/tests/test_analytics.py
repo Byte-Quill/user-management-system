@@ -1,7 +1,10 @@
 """Domain-focused tests: analytics."""
+from datetime import timedelta
 from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 from kyc.models import EmailLog, EmailOTP, KYCApplication
@@ -23,11 +26,20 @@ class AnalyticsTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {res.data['access']}")
 
     def make_app(self, status_value):
-        return KYCApplication.objects.create(
+        app = KYCApplication.objects.create(
             applicant=self.applicant,
             status=status_value,
             **{k: v for k, v in APP_PAYLOAD.items() if k != "address_line2"},
         )
+        # Anything past DRAFT must have been submitted to get there, so
+        # backfill submitted_at: the 30-day submission KPI (computed on
+        # submitted_at, not created_at) would otherwise ignore these apps.
+        if status_value != KYCApplication.Status.DRAFT:
+            KYCApplication.objects.filter(pk=app.pk).update(
+                submitted_at=timezone.now()
+            )
+            app.refresh_from_db()
+        return app
 
     def test_payload_shape_and_approval_rate(self):
         self.make_app(KYCApplication.Status.APPROVED)
@@ -72,6 +84,26 @@ class AnalyticsTests(APITestCase):
         res = self.client.get("/api/analytics/")
         self.assertIsNone(res.data["approval_rate"])
         self.assertEqual(res.data["kpis"]["total_applications"], 1)
+
+    def test_submitted_kpi_counts_submissions_not_creations(self):
+        """The 30-day KPI is on submitted_at, not created_at (GH issue 32)."""
+        # Submitted yesterday, but created 40 days ago: counts.
+        submitted_old = self.make_app(KYCApplication.Status.SUBMITTED)
+        KYCApplication.objects.filter(pk=submitted_old.pk).update(
+            created_at=timezone.now() - timedelta(days=40),
+            submitted_at=timezone.now() - timedelta(days=1),
+        )
+        # Draft created today, never submitted: does not count.
+        self.make_app(KYCApplication.Status.DRAFT)
+        # Submitted long ago but created today: does not count.
+        submitted_long_ago = self.make_app(KYCApplication.Status.SUBMITTED)
+        KYCApplication.objects.filter(pk=submitted_long_ago.pk).update(
+            submitted_at=timezone.now() - timedelta(days=40)
+        )
+
+        res = self.client.get("/api/analytics/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data["kpis"]["submitted_last_30_days"], 1)
 
 
 @FAST_PASSWORD_HASHERS

@@ -32,6 +32,7 @@ from kyc.common.throttles import (
     OTPVerifyThrottle,
     RegisterThrottle,
 )
+from kyc.common.tokens import revoke_user_sessions
 from kyc.models import EmailOTP, generate_user_id
 from kyc.serializers import EmailTokenObtainPairSerializer, RegisterSerializer
 from kyc.services.otp import issue_otp, request_otp, verify_otp
@@ -417,6 +418,9 @@ class PasswordResetConfirmView(APIView):
         if not user.email_verified:
             user.email_verified = True
         user.save(update_fields=["password", "email_verified"])
+        # Invalidate refresh tokens issued before the reset so a captured
+        # refresh cookie cannot outlive the password change.
+        revoke_user_sessions(user)
         return Response({"detail": "Password updated. You can sign in now."})
 
 

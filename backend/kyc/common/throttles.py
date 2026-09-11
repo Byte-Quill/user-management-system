@@ -1,4 +1,5 @@
 """DRF throttles: atomic fixed-window counters and scoped rate limits."""
+import hashlib
 import logging
 import math
 import time
@@ -11,6 +12,21 @@ from rest_framework.throttling import AnonRateThrottle, BaseThrottle, ScopedRate
 from rest_framework.views import exception_handler
 
 logger = logging.getLogger("kyc.access")
+
+
+def credential_throttle_key(prefix: str, email: str, ident: str) -> str:
+    """Build a fixed-length throttle cache key.
+
+    A valid email can be up to 254 chars and an IPv6 address up to 45, so the
+    naive ``f"{prefix}:{email}:{ident}"`` key can exceed the cache table's
+    ``varchar(255)`` key column. The resulting ``DataError`` is swallowed by
+    the cache backend (fail-closed), permanently locking that email + IP out.
+    Hashing the email keeps the key well under the limit for any input.
+    """
+    digest = hashlib.sha256(email.encode("utf-8")).hexdigest()[:32]
+    return f"{prefix}:{digest}:{ident}"
+
+
 
 class FixedWindowThrottle(BaseThrottle):
     """Shared atomic fixed-window counter for credential/OTP endpoints."""
@@ -54,7 +70,7 @@ class LoginThrottle(FixedWindowThrottle):
         data = request.data
         email = (data.get("email") or "").strip().lower() if hasattr(data, "get") else ""
         return self._allow(
-            f"login-throttle:{email}:{ident}",
+            credential_throttle_key("login-throttle", email, ident),
             settings.LOGIN_THROTTLE_MAX_ATTEMPTS,
             settings.LOGIN_THROTTLE_WINDOW_SECONDS,
         )
@@ -84,7 +100,7 @@ class OTPRequestThrottle(FixedWindowThrottle):
         data = request.data
         email = (data.get("email") or "").strip().lower() if hasattr(data, "get") else ""
         return self._allow(
-            f"otp-request-throttle:{email}:{ident}",
+            credential_throttle_key("otp-request-throttle", email, ident),
             settings.OTP_REQUEST_MAX,
             settings.OTP_REQUEST_WINDOW_SECONDS,
         )

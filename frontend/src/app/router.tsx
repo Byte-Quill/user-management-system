@@ -17,6 +17,7 @@ const ReviewQueuePage = lazy(() => import("@/features/review/pages/ReviewQueuePa
 const VerifyEmailPage = lazy(() => import("@/features/auth/pages/VerifyEmailPage"));
 const UsersPage = lazy(() => import("@/features/users/pages/UsersPage"));
 const AnalyticsPage = lazy(() => import("@/features/analytics/pages/AnalyticsPage"));
+const TermsPage = lazy(() => import("@/features/auth/pages/TermsPage"));
 
 function HomeRoute() {
   const { user } = useAuth();
@@ -32,6 +33,7 @@ export default function AppRoutes() {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/terms" element={<TermsPage />} />
           <Route
             element={
               <Protected>

@@ -13,9 +13,9 @@ import { usePaginatedList } from "@/hooks/usePaginatedList";
 import {
   capitalizeFirst,
   validateConfirmPassword,
-  validateEmail,
   validateName,
   validatePassword,
+  validateRegistrationEmail,
 } from "@/lib/validation";
 import type { ManagedUser, Role } from "@/types";
 
@@ -97,7 +97,9 @@ export default function UsersPage() {
     event.preventDefault();
 
     const errors: Record<string, string> = {};
-    const emailError = validateEmail(form.email);
+    // Same rule as self-registration: reject disposable/temporary domains,
+    // not just bad format (mirrors AdminUserCreateSerializer on the backend).
+    const emailError = validateRegistrationEmail(form.email);
     if (emailError) errors.email = emailError;
     const firstNameError = validateName(form.first_name, "First name");
     if (firstNameError) errors.first_name = firstNameError;

@@ -103,8 +103,9 @@ working:
 - Register endpoint returns 400 for duplicate email (account enumeration,
   INFO). Deliberately left as-is: a uniform response would break the SPA's
   per-field error UX, and the register throttle (5/h) bounds probing.
-- MFA not implemented; access tokens live 1h; refresh tokens are not revoked
-  on password reset (bounded by token TTLs).
+- MFA not implemented; access tokens live 1h. Refresh tokens issued before a
+  password reset are now blacklisted on the reset (`revoke_user_sessions`);
+  access tokens remain valid until their 1h TTL expires (bounded).
 - `nanoid` GHSA-2v37-7h3g-55p8 previously flagged via postcss/vite/tailwind
   dev-deps: resolved by the lockfile bump to nanoid 3.3.18; `npm audit
   --omit=dev` reports 0 vulnerabilities.

@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from kyc.common.permissions import IsSuperAdmin
+from kyc.common.tokens import revoke_user_sessions
 from kyc.serializers import (
     AdminUserCreateSerializer,
     AdminUserSerializer,
@@ -97,4 +98,7 @@ class UserManagementViewSet(viewsets.ModelViewSet):
 
         user.set_password(serializer.validated_data["new_password"])
         user.save(update_fields=["password"])
+        # The admin-console copy promises that this revokes active sessions:
+        # blacklist refresh tokens issued before the reset to make it true.
+        revoke_user_sessions(user)
         return Response({"detail": "Password updated."})

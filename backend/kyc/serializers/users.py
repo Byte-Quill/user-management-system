@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from rest_framework import serializers
 
+from kyc.common.email_domains import is_disposable_email
 from kyc.models import generate_user_id
 from kyc.serializers.fields import PasswordField, normalize_phone, validate_person_name
 
@@ -53,7 +54,14 @@ class AdminUserCreateSerializer(serializers.ModelSerializer):
 
         if not value:
             return value
-        return value.strip().lower()
+        value = value.strip().lower()
+        # Same rule as self-registration (RegisterSerializer): keep burner
+        # domains out of every account-creation path.
+        if is_disposable_email(value):
+            raise serializers.ValidationError(
+                "Disposable or temporary email addresses are not allowed."
+            )
+        return value
 
     def validate_first_name(self, value):
         return validate_person_name(value, "First name")

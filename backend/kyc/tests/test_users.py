@@ -88,6 +88,56 @@ class UserManagementTests(APITestCase):
         self.super_admin.refresh_from_db()
         self.assertTrue(self.super_admin.check_password("Passw0rd!"))
 
+    def test_create_user_rejects_disposable_email(self):
+        """Admin-created users must obey the same blocklist as registration."""
+        res = self.client.post(
+            "/api/users/",
+            {
+                "email": "burner@mailinator.com",
+                "password": "Str0ngPass!",
+                "first_name": "Burn",
+                "last_name": "Er",
+                "role": User.Role.APPLICANT,
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, res.data)
+        self.assertIn("email", res.data)
+        self.assertFalse(User.objects.filter(email="burner@mailinator.com").exists())
+
+    def test_create_user_accepts_normal_email(self):
+        res = self.client.post(
+            "/api/users/",
+            {
+                "email": "fine@kyc.local",
+                "password": "Str0ngPass!",
+                "first_name": "Fine",
+                "last_name": "Mail",
+                "role": User.Role.APPLICANT,
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+
+    def test_set_password_blacklists_outstanding_tokens(self):
+        """Admin reset revokes the target user's active sessions."""
+        from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+
+        res = self.client.post(
+            "/api/auth/token/", {"email": self.applicant.email, "password": "Passw0rd!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertFalse(
+            BlacklistedToken.objects.filter(token__user=self.applicant).exists()
+        )
+
+        res = self.client.post(
+            f"/api/users/{self.applicant.pk}/set_password/", {"new_password": "An0therPass!"}
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        self.assertTrue(
+            BlacklistedToken.objects.filter(token__user=self.applicant).exists(),
+            "admin reset must blacklist the target user's outstanding tokens",
+        )
+
     def test_filters(self):
         res = self.client.get("/api/users/", {"role": User.Role.APPLICANT})
         self.assertEqual(res.status_code, status.HTTP_200_OK)

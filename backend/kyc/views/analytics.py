@@ -32,7 +32,7 @@ class AnalyticsView(APIView):
         decided = approved + rejected
         approval_rate = round(approved / decided * 100, 1) if decided else None
 
-        recent = KYCApplication.objects.filter(created_at__gte=last_30).count()
+        recent = KYCApplication.objects.filter(submitted_at__gte=last_30).count()
 
         emails = EmailLog.objects.filter(created_at__gte=last_30)
         email_counts = dict(emails.values_list("status").annotate(count=Count("id")))

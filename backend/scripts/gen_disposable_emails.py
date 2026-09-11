@@ -33,7 +33,12 @@ export function isDisposableEmail(email: string): boolean {
 '''
 
 out = header + "\n" + body + footer
-path = Path(__file__).resolve().parents[2] / "frontend/src/disposableEmails.ts"
+path = Path(__file__).resolve().parents[2] / "frontend/src/data/disposableEmails.ts"
+if not path.is_file():
+    raise SystemExit(
+        f"refusing to write: expected target does not exist: {path}\n"
+        "If the file was moved, update this script's path."
+    )
 with open(path, "w") as f:
     f.write(out)
 print(f"wrote {len(domains)} domains -> {path}")

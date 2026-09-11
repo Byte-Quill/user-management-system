@@ -359,11 +359,18 @@ if not DEBUG:
 
     SECURE_CSP = {
         "default-src": [CSP.SELF],
-        "script-src": [CSP.SELF],
-        "style-src": [CSP.SELF, "'unsafe-inline'"],
+        "script-src": [CSP.SELF]
+        + (["https://accounts.google.com"] if GOOGLE_CLIENT_ID else []),
+        # Google Identity Services injects inline <style> and fetches assets
+        # from accounts.google.com when the button is enabled.
+        "style-src": [CSP.SELF, "'unsafe-inline'"]
+        + (["https://accounts.google.com"] if GOOGLE_CLIENT_ID else []),
         "img-src": [CSP.SELF, "data:", "https:"],
         "font-src": [CSP.SELF, "data:"],
-        "connect-src": [CSP.SELF],
+        "connect-src": [CSP.SELF]
+        + (["https://accounts.google.com"] if GOOGLE_CLIENT_ID else []),
+        # The GSI one-tap / button iframe lives on accounts.google.com.
+        **({"frame-src": ["https://accounts.google.com"]} if GOOGLE_CLIENT_ID else {}),
         "frame-ancestors": [CSP.NONE],
         "form-action": [CSP.SELF],
         "base-uri": [CSP.SELF],

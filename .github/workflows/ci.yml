@@ -46,6 +46,16 @@ jobs:
         env:
           DJANGO_DEBUG: "true"
           DATABASE_URL: "postgres://kyc:kyc@localhost:5432/kyc"
+      - name: Django system check (production settings)
+        # Exercised with DEBUG=false so production-only behavior (CSP, HSTS,
+        # secure cookies, secret-key enforcement, deploy checks) is validated
+        # in CI and DEBUG=false-only regressions fail fast. See issue #28.
+        run: python manage.py check --deploy
+        env:
+          DJANGO_DEBUG: "false"
+          DJANGO_SECRET_KEY: "ci-only-random-key-0123456789abcdef0123456789abcdef012345"
+          DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
+          DATABASE_URL: "postgres://kyc:kyc@localhost:5432/kyc"
       - name: Run tests
         run: python manage.py test kyc
         env:

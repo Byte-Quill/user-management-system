@@ -550,3 +550,85 @@ class UserIDCollisionRetryTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("already exists", str(res.data))
+
+
+@FAST_PASSWORD_HASHERS
+class ManagerRegressionTests(APITestCase):
+    """The manager API must accept ``email`` as the USERNAME_FIELD kwarg.
+
+    Regression for "createsuperuser is broken": Django's createsuperuser
+    command calls ``create_superuser(email=..., password=...)`` because
+    ``User.USERNAME_FIELD`` is ``email``, which used to raise TypeError.
+    """
+
+    def test_create_superuser_accepts_email_kwarg(self):
+        user = User.objects.create_superuser(
+            email="root@kyc.local", password="S0perSecure!"
+        )
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)
+        self.assertEqual(user.role, User.Role.SUPER_ADMIN)
+        self.assertTrue(user.username.startswith("PHIN-"))
+        self.assertEqual(user.email, "root@kyc.local")
+
+    def test_createsuperuser_command_works(self):
+        from django.core.management import call_command
+
+        call_command(
+            "createsuperuser", "--email", "cli-admin@kyc.local", "--noinput", verbosity=0
+        )
+        user = User.objects.get(email="cli-admin@kyc.local")
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)
+        self.assertEqual(user.role, User.Role.SUPER_ADMIN)
+        self.assertFalse(user.has_usable_password())
+
+    def test_create_user_without_username_generates_phin_id(self):
+        user = User.objects.create_user(
+            email="no-username@kyc.local", password="An0therPass!"
+        )
+        self.assertTrue(user.username.startswith("PHIN-"))
+        self.assertFalse(user.is_staff)
+
+    def test_create_superuser_with_explicit_username_still_works(self):
+        user = User.objects.create_user(
+            username="manual-id", email="manual@kyc.local", password="An0therPass!"
+        )
+        self.assertEqual(user.username, "manual-id")
+
+
+@FAST_PASSWORD_HASHERS
+class ResetTokenBlacklistRegressionTests(APITestCase):
+    """Password reset must blacklist outstanding refresh tokens (GH issue 31)."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_self_service_reset_blacklists_outstanding_tokens(self):
+        make_user("reset-blacklist@kyc.local", User.Role.APPLICANT)
+        res = self.client.post(
+            "/api/auth/token/",
+            {"email": "reset-blacklist@kyc.local", "password": "Passw0rd!"},
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        self.client.post(
+            "/api/auth/password-reset/request/", {"email": "reset-blacklist@kyc.local"}
+        )
+        res = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {
+                "email": "reset-blacklist@kyc.local",
+                "code": last_otp_code(),
+                "new_password": "N3wSecret!",
+            },
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+
+        user = User.objects.get(email="reset-blacklist@kyc.local")
+        self.assertTrue(
+            BlacklistedToken.objects.filter(token__user=user).exists(),
+            "outstanding refresh tokens must be blacklisted after a reset",
+        )

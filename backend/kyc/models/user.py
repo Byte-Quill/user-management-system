@@ -25,13 +25,37 @@ def generate_user_id() -> str:
 
 
 class UserManager(DjangoUserManager):
-    """User manager that treats email as optional."""
+    """User manager that treats email as optional and email as the login field.
+
+    ``USERNAME_FIELD`` is ``email``, so ``createsuperuser`` calls
+    ``create_superuser(email=..., password=...)`` without a positional
+    ``username``. Django's default ``create_superuser`` signature requires a
+    positional ``username`` first, which raises ``TypeError``. These overrides
+    keep the manager callable with ``email`` as the username field and
+    auto-generate the public PHIN- username when it is not supplied.
+    """
 
     @classmethod
     def normalize_email(cls, email):
         if not email:
             return None
         return super().normalize_email(email)
+
+    def _generate_username(self):
+        return generate_user_id()
+
+    def create_user(self, username=None, email=None, password=None, **extra_fields):
+        if not username:
+            username = self._generate_username()
+        return super().create_user(username, email=email, password=password, **extra_fields)
+
+    def create_superuser(self, username=None, email=None, password=None, **extra_fields):
+        if not username:
+            username = self._generate_username()
+        # The CLI-created bootstrap account should be a functional super admin
+        # in the KYC API too, not just Django admin (is_staff/is_superuser).
+        extra_fields.setdefault("role", User.Role.SUPER_ADMIN)
+        return super().create_superuser(username, email=email, password=password, **extra_fields)
 
 
 class User(AbstractUser):
@@ -89,6 +113,16 @@ class User(AbstractUser):
             GinIndex(
                 name="kyc_user_uname_trgm_idx",
                 fields=["username"],
+                opclasses=["gin_trgm_ops"],
+            ),
+            GinIndex(
+                name="kyc_user_fname_trgm_idx",
+                fields=["first_name"],
+                opclasses=["gin_trgm_ops"],
+            ),
+            GinIndex(
+                name="kyc_user_lname_trgm_idx",
+                fields=["last_name"],
                 opclasses=["gin_trgm_ops"],
             ),
         ]
