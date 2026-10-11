@@ -1,27 +1,27 @@
 # Pinned to the exact versions verified in the working environment.
 # Bump deliberately and re-run the test suite; do not use floating ranges.
-Django==6.1.1
-djangorestframework==3.18.0
+Django==6.1.2
+djangorestframework==3.18.3
 djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.9.0
 # Google Sign-In; the [socialaccount] extra pulls in requests/PyJWT/etc.
-django-allauth==65.19.2
+django-allauth==65.19.7
 requests==2.34.2
-PyJWT==2.13.0
-cryptography==50.0.1
+PyJWT==2.15.1
+cryptography==50.0.2
 oauthlib==3.3.1
 cffi==2.1.1
-pycparser==3.0
+pycparser==3.1
 gunicorn==26.2.0
 whitenoise==6.12.0
 # PostgreSQL driver: psycopg 3; the [binary] extra ships its own libpq.
-psycopg[binary]==3.3.5
-python-dotenv==1.2.3
+psycopg[binary]==3.3.6
+python-dotenv==1.2.4
 # Phone validation/normalisation (libphonenumber port), mirroring the SPA.
-phonenumbers==9.0.38
+phonenumbers==9.0.41
 # Community-maintained disposable/burner email blocklist. Bump to pick up new
 # providers.
-disposable-email-domains==0.0.250
+disposable-email-domains==0.0.276
 # Caching/throttling uses Django's database cache backend (Postgres-backed).
 # Argon2id for new password hashes (memory-hard, GPU-resistant); the PBKDF2
 # entries in settings.PASSWORD_HASHERS keep existing hashes verifiable and
